@@ -50,11 +50,13 @@ def get_system_prompt(turn_count: int) -> str:
     else:
         return "あなたは日本語で話すフレンドリーな音声AIです。会話は3ターンで終了する。3回目は『そうだったんだね』のように共感し、『今日はここまでだよ、じゃあね』と自然に締める。返答は短く、やさしく、1〜2文。"
 
-# 過去の会話履歴をAIに引き渡すよう修正
+# Groq API用に role を正しくフォーマットする修正
 def build_messages(user_text: str):
     messages = [{"role": "system", "content": get_system_prompt(st.session_state.turn_count)}]
     for role, content in st.session_state.messages:
-        messages.append({"role": role, "content": content})
+        # "ai" を "assistant" に変換
+        role_name = "assistant" if role in ["ai", "assistant"] else "user"
+        messages.append({"role": role_name, "content": content})
     messages.append({"role": "user", "content": user_text})
     return messages
 
