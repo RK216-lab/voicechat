@@ -1,0 +1,4 @@
+streamlit
+edge-tts
+groq
+streamlit-mic-recorder
