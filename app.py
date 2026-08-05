@@ -26,7 +26,7 @@ st.markdown("""
 
 st.markdown('<div class="title-box"><h1>🎙️ 音声AIアシスタント</h1><p class="small-note">3ターンで自然に終わる会話 + edge-tts 読み上げ</p></div>', unsafe_allow_html=True)
 
-# セッション状態
+# セッション状態の初期化
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "turn_count" not in st.session_state:
@@ -39,6 +39,8 @@ if "groq_api_key" not in st.session_state:
     st.session_state.groq_api_key = os.getenv("GROQ_API_KEY", "")
 if "voice" not in st.session_state:
     st.session_state.voice = "ja-JP-NanamiNeural"
+if "last_processed_audio_id" not in st.session_state:
+    st.session_state.last_processed_audio_id = None
 
 def get_system_prompt(turn_count: int) -> str:
     if turn_count == 0:
@@ -48,11 +50,13 @@ def get_system_prompt(turn_count: int) -> str:
     else:
         return "あなたは日本語で話すフレンドリーな音声AIです。会話は3ターンで終了する。3回目は『そうだったんだね』のように共感し、『今日はここまでだよ、じゃあね』と自然に締める。返答は短く、やさしく、1〜2文。"
 
+# 過去の会話履歴をAIに引き渡すよう修正
 def build_messages(user_text: str):
-    return [
-        {"role": "system", "content": get_system_prompt(st.session_state.turn_count)},
-        {"role": "user", "content": user_text},
-    ]
+    messages = [{"role": "system", "content": get_system_prompt(st.session_state.turn_count)}]
+    for role, content in st.session_state.messages:
+        messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_text})
+    return messages
 
 def ask_groq(user_text: str) -> str:
     if not st.session_state.groq_api_key:
@@ -65,7 +69,23 @@ def ask_groq(user_text: str) -> str:
     )
     return resp.choices[0].message.content.strip()
 
-# edge-tts（Streamlit安全版）
+# Groq Whisperを使用した音声文字起こし（STT）処理
+def transcribe_audio(audio_bytes: bytes) -> str:
+    if not st.session_state.groq_api_key:
+        raise ValueError("GROQ APIキーを入力してください。")
+    client = Groq(api_key=st.session_state.groq_api_key)
+    with tempfile.NamedTemporaryFile(delete=True, suffix=".wav") as tmp:
+        tmp.write(audio_bytes)
+        tmp.flush()
+        with open(tmp.name, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-large-v3-turbo",
+                file=audio_file,
+                language="ja"
+            )
+    return transcription.text.strip()
+
+# edge-tts処理
 async def edge_tts_to_file(text: str, voice: str, out_path: str):
     communicate = edge_tts.Communicate(text=text, voice=voice)
     await communicate.save(out_path)
@@ -73,13 +93,10 @@ async def edge_tts_to_file(text: str, voice: str, out_path: str):
 def synthesize_tts(text: str, voice: str):
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tmp.close()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(edge_tts_to_file(text, voice, tmp.name))
-
+    asyncio.run(edge_tts_to_file(text, voice, tmp.name))
     return tmp.name
 
+# サイドバー設定
 with st.sidebar:
     st.header("設定")
     st.text_input("Groq API Key", type="password", key="groq_api_key")
@@ -89,8 +106,10 @@ with st.sidebar:
         st.session_state.turn_count = 0
         st.session_state.done = False
         st.session_state.last_audio_path = None
+        st.session_state.last_processed_audio_id = None
         st.rerun()
 
+# 会話ログ表示
 st.markdown("### 会話ログ")
 if not st.session_state.messages:
     st.info("マイクを押して話しかけてください。")
@@ -100,49 +119,62 @@ for role, content in st.session_state.messages:
     else:
         st.markdown(f'<div class="ai-msg">{content}</div>', unsafe_allow_html=True)
 
+# 応答音声再生
+if st.session_state.last_audio_path and Path(st.session_state.last_audio_path).exists():
+    st.audio(st.session_state.last_audio_path, format="audio/mp3", autoplay=True)
+    if st.session_state.done:
+        st.success("今日はここまでだよ、じゃあね。")
+
+# 入力欄
 st.markdown("### 入力")
 if mic_recorder is not None and not st.session_state.done:
     audio = mic_recorder(start_prompt="🎙️ 録音開始", stop_prompt="⏹️ 録音停止", just_once=False, use_container_width=True, key="mic")
 else:
-    st.warning("音声録音コンポーネントが使えないため、下のテキスト入力で試せます。")
+    if mic_recorder is None:
+        st.warning("`streamlit-mic-recorder` がインストールされていないため、テキスト入力を使用してください。")
     audio = None
 
-text_input = st.text_input("またはテキストで入力", key="manual_text")
-send = st.button("送信")
+with st.form(key="text_form", clear_on_submit=True):
+    text_input = st.text_input("またはテキストで入力", key="manual_text", disabled=st.session_state.done)
+    send = st.form_submit_button("送信", disabled=st.session_state.done)
 
 def process_user_text(user_text: str):
     if not user_text.strip() or st.session_state.done:
         return
+    
     st.session_state.messages.append(("user", user_text))
-    st.session_state.turn_count += 1
+    
     try:
-        ai_text = ask_groq(user_text)
+        with st.spinner("AIが思考中..."):
+            ai_text = ask_groq(user_text)
+        st.session_state.messages.append(("ai", ai_text))
+        st.session_state.turn_count += 1
+        
+        with st.spinner("音声生成中..."):
+            audio_path = synthesize_tts(ai_text, st.session_state.voice)
+            st.session_state.last_audio_path = audio_path
     except Exception as e:
-        st.error(f"AI応答エラー: {e}")
+        st.error(f"エラーが発生しました: {e}")
         return
-    st.session_state.messages.append(("ai", ai_text))
-    try:
-        audio_path = synthesize_tts(ai_text, st.session_state.voice)
-        st.session_state.last_audio_path = audio_path
-    except Exception as e:
-        st.warning(f"TTS生成に失敗しました: {e}")
-        st.session_state.last_audio_path = None
+
     if st.session_state.turn_count >= 3:
         st.session_state.done = True
+        
     st.rerun()
 
+# テキスト送信ボタン処理
 if send and text_input.strip():
     process_user_text(text_input.strip())
 
+# マイク録音処理 (重複防止ID判定)
 if audio and not st.session_state.done:
-    try:
-        user_text = str(audio.get("text", "")).strip()
-        if user_text:
-            process_user_text(user_text)
-    except Exception as e:
-        st.error(f"音声入力の処理に失敗しました: {e}")
-
-if st.session_state.last_audio_path and Path(st.session_state.last_audio_path).exists():
-    st.audio(st.session_state.last_audio_path, format="audio/mp3")
-    if st.session_state.done:
-        st.success("今日はここまでだよ、じゃあね。")
+    audio_id = id(audio.get("bytes"))
+    if audio_id != st.session_state.last_processed_audio_id:
+        st.session_state.last_processed_audio_id = audio_id
+        try:
+            with st.spinner("音声認識中..."):
+                user_text = transcribe_audio(audio["bytes"])
+            if user_text:
+                process_user_text(user_text)
+        except Exception as e:
+            st.error(f"音声認識エラー: {e}")
