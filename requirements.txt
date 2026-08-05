@@ -1,4 +1,6 @@
 streamlit
-edge-tts
 groq
+edge-tts
 streamlit-mic-recorder
+starlette<0.40.0
+
