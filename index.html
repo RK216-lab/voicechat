@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Moonshine AI 音声対話アシスタント</title>
+  <title>AI 音声対話アシスタント</title>
   <style>
     /* 基本スタイルの設定 */
     :root {
@@ -285,7 +285,7 @@
   <div class="card">
     <div class="header">
       <h1>音声AIアシスタント</h1>
-      <p>Moonshine JS リアルタイム認識 & Groq Llama 3.1</p>
+      <p>Web Speech API & Groq Llama 3.1</p>
     </div>
 
     <!-- APIキー設定UI -->
@@ -322,9 +322,6 @@
 
   <!-- JavaScript Modules -->
   <script type="module">
-    // Moonshine CDN から MicrophoneTranscriber を読み込み
-    import { MicrophoneTranscriber } from "https://cdn.jsdelivr.net/npm/@moonshine-ai/moonshine-js/+esm";
-
     // DOM要素の取得
     const apiKeyInput = document.getElementById("api-key-input");
     const saveKeyBtn = document.getElementById("save-key-btn");
@@ -364,12 +361,67 @@
     ];
 
     // アプリケーション状態変数
-    let transcriber = null;
+    let recognition = null;
     let isRecording = false;
     let currentTranscript = "";
     let liveUserBubble = null;
     let thinkingElement = null;
     let selectedVoice = null;
+
+    // --- Web Speech API (音声認識) の初期化 ---
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    function initSpeechRecognition() {
+      if (!SpeechRecognition) {
+        showError("お使いのブラウザは音声認識（SpeechRecognition API）に対応していません。SafariまたはChromeの最新版をご使用ください。");
+        toggleBtn.disabled = true;
+        return null;
+      }
+
+      const rec = new SpeechRecognition();
+      rec.lang = "ja-JP";
+      rec.interimResults = true; // 途中経過を取得
+      rec.continuous = true;     // 連続認識
+
+      rec.onresult = (event) => {
+        let interimText = "";
+        let finalText = "";
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalText += transcript;
+          } else {
+            interimText += transcript;
+          }
+        }
+
+        const displayText = finalText || interimText;
+        if (displayText) {
+          currentTranscript = displayText;
+          updateLiveUserBubble(displayText);
+        }
+      };
+
+      rec.onerror = (event) => {
+        console.error("Speech Recognition Error:", event.error);
+        if (event.error === "not-allowed") {
+          showError("マイクの使用許可が拒否されました。ブラウザの設定からマイクアクセスを許可してください。");
+        } else if (event.error !== "no-speech") {
+          showError(`音声認識エラー: ${event.error}`);
+        }
+        stopRecordingState();
+      };
+
+      rec.onend = () => {
+        // 録音中状態のまま終了した場合は、録音停止後の処理をトリガー
+        if (isRecording) {
+          handleRecognizedSpeech();
+        }
+      };
+
+      return rec;
+    }
 
     // --- TTS (音声合成) 設定 & Safari/iPad対応 ---
     function initVoice() {
@@ -429,45 +481,6 @@
     function clearError() {
       errorContainer.style.display = "none";
       errorMessageEl.textContent = "";
-    }
-
-    // --- Moonshine JS の初期化（初回のみロード、2回目以降再利用） ---
-    async function ensureMoonshineLoaded() {
-      if (transcriber) return transcriber;
-
-      setStatus("Moonshine AIモデルを読み込み中...");
-      toggleBtn.disabled = true;
-
-      try {
-        transcriber = new MicrophoneTranscriber({
-          onTranscript: (text) => {
-            if (text) {
-              currentTranscript = text;
-              updateLiveUserBubble(text);
-            }
-          },
-          onError: (err) => {
-            console.error("Moonshine Transcriber Error:", err);
-            showError("音声認識中にエラーが発生しました: " + (err.message || err));
-          }
-        });
-
-        // 初回モデル読み込み
-        if (typeof transcriber.loadModel === "function") {
-          await transcriber.loadModel();
-        } else if (typeof transcriber.init === "function") {
-          await transcriber.init();
-        }
-
-        setStatus("モデル読み込み完了");
-        return transcriber;
-      } catch (err) {
-        console.error("Moonshine Initialization Error:", err);
-        transcriber = null;
-        throw new Error("Moonshine音声認識モデルの初期化に失敗しました。");
-      } finally {
-        toggleBtn.disabled = false;
-      }
     }
 
     // --- Groq Chat Completions API呼び出し ---
@@ -598,6 +611,51 @@
       }
     }
 
+    function stopRecordingState() {
+      isRecording = false;
+      updateButtonState(false);
+      toggleBtn.disabled = false;
+    }
+
+    // --- 音声認識結果の処理 ---
+    async function handleRecognizedSpeech() {
+      stopRecordingState();
+      toggleBtn.disabled = true; // 連打防止
+
+      const recognizedText = currentTranscript.trim();
+      currentTranscript = "";
+      liveUserBubble = null;
+
+      if (!recognizedText) {
+        setStatus("音声を認識できませんでした");
+        toggleBtn.disabled = false;
+        return;
+      }
+
+      // AI応答生成 & 音声合成
+      try {
+        showThinkingBubble();
+        setStatus("AIが思考中...");
+
+        const aiMessage = await fetchGroqResponse(recognizedText);
+
+        removeThinkingBubble();
+        appendMessageBubble("AI", aiMessage, "ai-bubble");
+
+        setStatus("読み上げ中...");
+        await speak(aiMessage);
+
+        setStatus("準備完了");
+      } catch (err) {
+        removeThinkingBubble();
+        console.error("AI/TTS Execution Error:", err);
+        showError(err.message || "AI応答の処理に失敗しました。");
+        setStatus("エラー発生");
+      } finally {
+        toggleBtn.disabled = false;
+      }
+    }
+
     // --- メイン録音切り替えハンドラー ---
     async function handleToggleRecording() {
       clearError();
@@ -609,87 +667,32 @@
 
       if (isRecording) {
         // --- 録音停止 ---
-        toggleBtn.disabled = true; // 連打防止
-        setStatus("音声処理中...");
-
-        try {
-          if (transcriber && typeof transcriber.stop === "function") {
-            const stopResult = await transcriber.stop();
-            if (typeof stopResult === "string" && stopResult) {
-              currentTranscript = stopResult;
-            }
-          }
-        } catch (err) {
-          console.error("Recording Stop Error:", err);
-          showError("録音停止処理中にエラーが発生しました。");
+        if (recognition) {
+          recognition.stop();
         }
-
-        isRecording = false;
-        updateButtonState(false);
-
-        const recognizedText = currentTranscript.trim();
-        currentTranscript = "";
-        liveUserBubble = null;
-
-        if (!recognizedText) {
-          setStatus("音声を認識できませんでした");
-          toggleBtn.disabled = false;
-          return;
-        }
-
-        // AI応答生成 & 音声合成
-        try {
-          showThinkingBubble();
-          setStatus("AIが思考中...");
-
-          const aiMessage = await fetchGroqResponse(recognizedText);
-
-          removeThinkingBubble();
-          appendMessageBubble("AI", aiMessage, "ai-bubble");
-
-          setStatus("読み上げ中...");
-          await speak(aiMessage);
-
-          setStatus("準備完了");
-        } catch (err) {
-          removeThinkingBubble();
-          console.error("AI/TTS Execution Error:", err);
-          showError(err.message || "AI応答の処理に失敗しました。");
-          setStatus("エラー発生");
-        } finally {
-          toggleBtn.disabled = false;
-        }
-
       } else {
         // --- 録音開始 ---
         toggleBtn.disabled = true; // 連打防止
 
         try {
-          // マイクアクセスの確認
-          try {
-            await navigator.mediaDevices.getUserMedia({ audio: true });
-          } catch (micErr) {
-            console.error("Microphone Access Error:", micErr);
-            throw new Error("マイクの使用が拒否されたか、利用可能なマイクが見つかりません。");
+          if (!recognition) {
+            recognition = initSpeechRecognition();
           }
 
-          // Moonshineモデル取得 (初回のみロード)
-          const activeTranscriber = await ensureMoonshineLoaded();
+          if (!recognition) return;
 
           currentTranscript = "";
           liveUserBubble = null;
 
-          if (typeof activeTranscriber.start === "function") {
-            await activeTranscriber.start();
-          }
-
+          recognition.start();
           isRecording = true;
           updateButtonState(true);
           setStatus("録音中... お話しください");
         } catch (err) {
           console.error("Start Recording Error:", err);
-          showError(err.message || "マイク開始処理に失敗しました。");
+          showError("マイクの開始に失敗しました: " + (err.message || err));
           setStatus("エラー発生");
+          stopRecordingState();
         } finally {
           toggleBtn.disabled = false;
         }
