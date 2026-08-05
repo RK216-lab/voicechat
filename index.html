@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Moonshine AI 音声対話アシスタント</title>
+  <style>
+    /* 基本スタイルの設定 */
+    :root {
+      --bg-color: #f1f5f9;
+      --card-bg: #ffffff;
+      --text-color: #0f172a;
+      --subtext-color: #64748b;
+      --border-color: #e2e8f0;
+      --primary-blue: #2563eb;
+      --primary-blue-hover: #1d4ed8;
+      --recording-red: #dc2626;
+      --recording-red-hover: #b91c1c;
+      --user-msg-bg: #eff6ff;
+      --ai-msg-bg: #f8fafc;
+      --error-bg: #fef2f2;
+      --error-border: #fecaca;
+      --error-text: #991b1b;
+      --input-bg: #ffffff;
+    }
+
+    /* ダークモード対応 */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-color: #0f172a;
+        --card-bg: #1e293b;
+        --text-color: #f8fafc;
+        --subtext-color: #94a3b8;
+        --border-color: #334155;
+        --user-msg-bg: #1e3a8a;
+        --ai-msg-bg: #334155;
+        --error-bg: #450a0a;
+        --error-border: #7f1d1d;
+        --error-text: #fca5a5;
+        --input-bg: #0f172a;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+
+    /* メインカード容器 */
+    .card {
+      background-color: var(--card-bg);
+      width: 100%;
+      max-width: 600px;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .header {
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .header p {
+      font-size: 0.875rem;
+      color: var(--subtext-color);
+    }
+
+    /* APIキー入力エリア */
+    .api-key-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background-color: var(--ai-msg-bg);
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+    }
+
+    .api-key-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--subtext-color);
+    }
+
+    .api-key-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .api-key-input {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background-color: var(--input-bg);
+      color: var(--text-color);
+      font-size: 0.875rem;
+      outline: none;
+    }
+
+    .api-key-input:focus {
+      border-color: var(--primary-blue);
+    }
+
+    .save-key-btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      background-color: var(--primary-blue);
+      color: #ffffff;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .save-key-btn:hover {
+      background-color: var(--primary-blue-hover);
+    }
+
+    /* エラーメッセージ表示エリア */
+    .error-banner {
+      display: none;
+      background-color: var(--error-bg);
+      border: 1px solid var(--error-border);
+      color: var(--error-text);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      line-height: 1.4;
+    }
+
+    /* チャット履歴エリア */
+    .chat-container {
+      height: 340px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scroll-behavior: smooth;
+    }
+
+    .message-wrapper {
+      display: flex;
+      flex-direction: column;
+      max-width: 85%;
+    }
+
+    .message-wrapper.user-bubble {
+      align-self: flex-end;
+      align-items: flex-end;
+    }
+
+    .message-wrapper.ai-bubble {
+      align-self: flex-start;
+      align-items: flex-start;
+    }
+
+    .message-sender {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--subtext-color);
+      margin-bottom: 4px;
+    }
+
+    .message-content {
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .user-bubble .message-content {
+      background-color: var(--primary-blue);
+      color: #ffffff;
+      border-bottom-right-radius: 2px;
+    }
+
+    .ai-bubble .message-content {
+      background-color: var(--ai-msg-bg);
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      border-bottom-left-radius: 2px;
+    }
+
+    /* 「考え中…」のアニメーション */
+    .thinking .message-content {
+      font-style: italic;
+      color: var(--subtext-color);
+      animation: pulse 1.5s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    /* コントロールエリア */
+    .controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* マイクボタン */
+    .mic-button {
+      background-color: var(--primary-blue);
+      color: #ffffff;
+      border: none;
+      border-radius: 50px;
+      padding: 14px 28px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
+    }
+
+    .mic-button:hover:not(:disabled) {
+      background-color: var(--primary-blue-hover);
+      transform: translateY(-1px);
+    }
+
+    .mic-button.recording {
+      background-color: var(--recording-red);
+      box-shadow: 0 4px 12px -1px rgba(220, 38, 38, 0.5);
+      animation: pulse-red 2s infinite;
+    }
+
+    .mic-button.recording:hover:not(:disabled) {
+      background-color: var(--recording-red-hover);
+    }
+
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
+      70% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+    }
+
+    /* 連打防止・ローディング用 */
+    .mic-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .status-text {
+      font-size: 0.85rem;
+      color: var(--subtext-color);
+      min-height: 1.2em;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="header">
+      <h1>音声AIアシスタント</h1>
+      <p>Moonshine JS リアルタイム認識 & Groq Llama 3.1</p>
+    </div>
+
+    <!-- APIキー設定UI -->
+    <div class="api-key-container">
+      <label class="api-key-label" for="api-key-input">Groq API Key (localStorageに保存されます)</label>
+      <div class="api-key-row">
+        <input type="password" id="api-key-input" class="api-key-input" placeholder="gsk_..." autocomplete="off" />
+        <button id="save-key-btn" class="save-key-btn">保存</button>
+      </div>
+    </div>
+
+    <!-- エラー表示エリア -->
+    <div id="error-container" class="error-banner">
+      <span id="error-message"></span>
+    </div>
+
+    <!-- チャットログ -->
+    <div id="chat-container" class="chat-container"></div>
+
+    <!-- 操作パネル -->
+    <div class="controls">
+      <button id="toggle-btn" class="mic-button">
+        <span id="btn-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+        </span>
+        <span id="btn-text">マイク開始</span>
+      </button>
+      <div id="status" class="status-text">待機中</div>
+    </div>
+  </div>
+
+  <!-- JavaScript Modules -->
+  <script type="module">
+    // Moonshine CDN から MicrophoneTranscriber を読み込み
+    import { MicrophoneTranscriber } from "https://cdn.jsdelivr.net/npm/@moonshine-ai/moonshine-js/+esm";
+
+    // DOM要素の取得
+    const apiKeyInput = document.getElementById("api-key-input");
+    const saveKeyBtn = document.getElementById("save-key-btn");
+    const toggleBtn = document.getElementById("toggle-btn");
+    const btnText = document.getElementById("btn-text");
+    const btnIcon = document.getElementById("btn-icon");
+    const statusEl = document.getElementById("status");
+    const chatContainer = document.getElementById("chat-container");
+    const errorContainer = document.getElementById("error-container");
+    const errorMessageEl = document.getElementById("error-message");
+
+    // GROQ APIキー管理 (localStorageからの読み込み)
+    let GROQ_API_KEY = localStorage.getItem("GROQ_API_KEY") || "";
+    if (GROQ_API_KEY) {
+      apiKeyInput.value = GROQ_API_KEY;
+    }
+
+    // APIキー保存ボタンイベント
+    saveKeyBtn.addEventListener("click", () => {
+      const val = apiKeyInput.value.trim();
+      if (!val) {
+        showError("有効なAPIキーを入力してください。");
+        return;
+      }
+      GROQ_API_KEY = val;
+      localStorage.setItem("GROQ_API_KEY", GROQ_API_KEY);
+      clearError();
+      setStatus("APIキーを保存しました。");
+    });
+
+    // 会話履歴配列の保持 (systemプロンプトの設定)
+    const messages = [
+      {
+        role: "system",
+        content: "あなたはフレンドリーな音声AIです。日本語で2文以内で自然に返答してください。"
+      }
+    ];
+
+    // アプリケーション状態変数
+    let transcriber = null;
+    let isRecording = false;
+    let currentTranscript = "";
+    let liveUserBubble = null;
+    let thinkingElement = null;
+    let selectedVoice = null;
+
+    // --- TTS (音声合成) 設定 & Safari/iPad対応 ---
+    function initVoice() {
+      if (!("speechSynthesis" in window)) return;
+      const voices = window.speechSynthesis.getVoices();
+      // 日本語音声を自動選択
+      selectedVoice = voices.find(v => v.lang.startsWith("ja") || v.lang.includes("ja") || v.lang.includes("JP")) || null;
+    }
+
+    if ("speechSynthesis" in window) {
+      initVoice();
+      // 音声リストの非同期ロードに対応
+      window.speechSynthesis.onvoiceschanged = initVoice;
+    }
+
+    // TTS読み上げ実行関数
+    function speak(text) {
+      return new Promise((resolve) => {
+        if (!("speechSynthesis" in window)) {
+          console.error("SpeechSynthesis APIは本ブラウザで未サポートです。");
+          resolve();
+          return;
+        }
+
+        // 発話中なら一旦キャンセルの上発話
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "ja-JP";
+        utterance.rate = 1.0;  // 速度
+        utterance.pitch = 1.0; // ピッチ
+        utterance.volume = 1.0; // 音量
+
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
+        }
+
+        utterance.onend = () => resolve();
+        utterance.onerror = (err) => {
+          console.error("SpeechSynthesis Error:", err);
+          resolve();
+        };
+
+        // Safari・iPadでの再生ロック解除対策
+        window.speechSynthesis.resume();
+        window.speechSynthesis.speak(utterance);
+      });
+    }
+
+    // --- エラー表示制御 ---
+    function showError(msg) {
+      console.error("Application Error:", msg);
+      errorMessageEl.textContent = msg;
+      errorContainer.style.display = "block";
+    }
+
+    function clearError() {
+      errorContainer.style.display = "none";
+      errorMessageEl.textContent = "";
+    }
+
+    // --- Moonshine JS の初期化（初回のみロード、2回目以降再利用） ---
+    async function ensureMoonshineLoaded() {
+      if (transcriber) return transcriber;
+
+      setStatus("Moonshine AIモデルを読み込み中...");
+      toggleBtn.disabled = true;
+
+      try {
+        transcriber = new MicrophoneTranscriber({
+          onTranscript: (text) => {
+            if (text) {
+              currentTranscript = text;
+              updateLiveUserBubble(text);
+            }
+          },
+          onError: (err) => {
+            console.error("Moonshine Transcriber Error:", err);
+            showError("音声認識中にエラーが発生しました: " + (err.message || err));
+          }
+        });
+
+        // 初回モデル読み込み
+        if (typeof transcriber.loadModel === "function") {
+          await transcriber.loadModel();
+        } else if (typeof transcriber.init === "function") {
+          await transcriber.init();
+        }
+
+        setStatus("モデル読み込み完了");
+        return transcriber;
+      } catch (err) {
+        console.error("Moonshine Initialization Error:", err);
+        transcriber = null;
+        throw new Error("Moonshine音声認識モデルの初期化に失敗しました。");
+      } finally {
+        toggleBtn.disabled = false;
+      }
+    }
+
+    // --- Groq Chat Completions API呼び出し ---
+    async function fetchGroqResponse(userMessageText) {
+      if (!GROQ_API_KEY) {
+        throw new Error("Groq APIキーが設定されていません。画面上部の入力欄にAPIキーを設定してください。");
+      }
+
+      messages.push({ role: "user", content: userMessageText });
+
+      let response;
+      try {
+        response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${GROQ_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: "llama-3.1-8b-instant",
+            messages: messages,
+            temperature: 0.7
+          })
+        });
+      } catch (fetchErr) {
+        console.error("Fetch Network Error:", fetchErr);
+        throw new Error("ネットワーク接続エラーが発生しました。");
+      }
+
+      if (!response.ok) {
+        let errDetails = {};
+        try {
+          errDetails = await response.json();
+        } catch (e) {
+          console.error("APIエラーレスポンスJSON解析失敗:", e);
+        }
+        console.error("Groq API Response Error:", response.status, errDetails);
+        const detailMsg = errDetails.error?.message || `ステータスコード: ${response.status}`;
+        throw new Error(`Groq APIエラー: ${detailMsg}`);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        console.error("JSON Parsing Error:", jsonErr);
+        throw new Error("APIレスポンスのJSON取得・解析に失敗しました。");
+      }
+
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        console.error("Invalid Response Structure:", data);
+        throw new Error("APIから予期しないデータ形式が返却されました。");
+      }
+
+      const aiReply = data.choices[0].message.content.trim();
+      messages.push({ role: "assistant", content: aiReply });
+      return aiReply;
+    }
+
+    // --- UI更新ヘルパー関数 ---
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function updateLiveUserBubble(text) {
+      if (!liveUserBubble) {
+        liveUserBubble = appendMessageBubble("あなた", text, "user-bubble");
+      } else {
+        const contentEl = liveUserBubble.querySelector(".message-content");
+        if (contentEl) contentEl.textContent = text;
+      }
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function appendMessageBubble(sender, text, className) {
+      const wrapper = document.createElement("div");
+      wrapper.className = `message-wrapper ${className}`;
+
+      const label = document.createElement("div");
+      label.className = "message-sender";
+      label.textContent = sender;
+
+      const content = document.createElement("div");
+      content.className = "message-content";
+      content.textContent = text;
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(content);
+      chatContainer.appendChild(wrapper);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+      return wrapper;
+    }
+
+    function showThinkingBubble() {
+      thinkingElement = document.createElement("div");
+      thinkingElement.className = "message-wrapper ai-bubble thinking";
+
+      const label = document.createElement("div");
+      label.className = "message-sender";
+      label.textContent = "AI";
+
+      const content = document.createElement("div");
+      content.className = "message-content";
+      content.textContent = "考え中…";
+
+      thinkingElement.appendChild(label);
+      thinkingElement.appendChild(content);
+      chatContainer.appendChild(thinkingElement);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function removeThinkingBubble() {
+      if (thinkingElement) {
+        thinkingElement.remove();
+        thinkingElement = null;
+      }
+    }
+
+    function updateButtonState(recording) {
+      if (recording) {
+        toggleBtn.classList.add("recording");
+        btnText.textContent = "マイク停止";
+        btnIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
+      } else {
+        toggleBtn.classList.remove("recording");
+        btnText.textContent = "マイク開始";
+        btnIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>`;
+      }
+    }
+
+    // --- メイン録音切り替えハンドラー ---
+    async function handleToggleRecording() {
+      clearError();
+
+      if (!GROQ_API_KEY) {
+        showError("先にGroq APIキーを入力・保存してください。");
+        return;
+      }
+
+      if (isRecording) {
+        // --- 録音停止 ---
+        toggleBtn.disabled = true; // 連打防止
+        setStatus("音声処理中...");
+
+        try {
+          if (transcriber && typeof transcriber.stop === "function") {
+            const stopResult = await transcriber.stop();
+            if (typeof stopResult === "string" && stopResult) {
+              currentTranscript = stopResult;
+            }
+          }
+        } catch (err) {
+          console.error("Recording Stop Error:", err);
+          showError("録音停止処理中にエラーが発生しました。");
+        }
+
+        isRecording = false;
+        updateButtonState(false);
+
+        const recognizedText = currentTranscript.trim();
+        currentTranscript = "";
+        liveUserBubble = null;
+
+        if (!recognizedText) {
+          setStatus("音声を認識できませんでした");
+          toggleBtn.disabled = false;
+          return;
+        }
+
+        // AI応答生成 & 音声合成
+        try {
+          showThinkingBubble();
+          setStatus("AIが思考中...");
+
+          const aiMessage = await fetchGroqResponse(recognizedText);
+
+          removeThinkingBubble();
+          appendMessageBubble("AI", aiMessage, "ai-bubble");
+
+          setStatus("読み上げ中...");
+          await speak(aiMessage);
+
+          setStatus("準備完了");
+        } catch (err) {
+          removeThinkingBubble();
+          console.error("AI/TTS Execution Error:", err);
+          showError(err.message || "AI応答の処理に失敗しました。");
+          setStatus("エラー発生");
+        } finally {
+          toggleBtn.disabled = false;
+        }
+
+      } else {
+        // --- 録音開始 ---
+        toggleBtn.disabled = true; // 連打防止
+
+        try {
+          // マイクアクセスの確認
+          try {
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch (micErr) {
+            console.error("Microphone Access Error:", micErr);
+            throw new Error("マイクの使用が拒否されたか、利用可能なマイクが見つかりません。");
+          }
+
+          // Moonshineモデル取得 (初回のみロード)
+          const activeTranscriber = await ensureMoonshineLoaded();
+
+          currentTranscript = "";
+          liveUserBubble = null;
+
+          if (typeof activeTranscriber.start === "function") {
+            await activeTranscriber.start();
+          }
+
+          isRecording = true;
+          updateButtonState(true);
+          setStatus("録音中... お話しください");
+        } catch (err) {
+          console.error("Start Recording Error:", err);
+          showError(err.message || "マイク開始処理に失敗しました。");
+          setStatus("エラー発生");
+        } finally {
+          toggleBtn.disabled = false;
+        }
+      }
+    }
+
+    // ボタンクリックイベントリスナー登録
+    toggleBtn.addEventListener("click", handleToggleRecording);
+  </script>
+</body>
+</html>
