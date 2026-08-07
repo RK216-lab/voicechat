@@ -1,6 +1,4 @@
-streamlit
-groq
-edge-tts
-streamlit-mic-recorder
-starlette<0.40.0
-
+fastapi
+uvicorn
+opensmile
+python-multipart
