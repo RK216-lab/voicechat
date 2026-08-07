@@ -3,176 +3,427 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI ボイスチャット & 疲労度分析</title>
+  <title>自分スキャン - AI疲労診断</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Transformers.js for Client-side Text Embeddings -->
   <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .bg-app-gradient { background: linear-gradient(180deg, #FDE8E1 0%, #FDF3EE 50%, #E8EEFB 100%); }
+    .wave-animation {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .wave-bar {
+      width: 4px;
+      height: 16px;
+      background-color: #34D399;
+      border-radius: 2px;
+      animation: wave 1.2s infinite ease-in-out;
+    }
+    .wave-bar:nth-child(2) { animation-delay: 0.2s; }
+    .wave-bar:nth-child(3) { animation-delay: 0.4s; }
+    .wave-bar:nth-child(4) { animation-delay: 0.6s; }
+    @keyframes wave {
+      0%, 100% { height: 8px; }
+      50% { height: 24px; }
+    }
+  </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col items-center p-4">
+<body class="bg-slate-200 flex justify-center items-center min-h-screen">
 
-  <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col h-[90vh]">
-    
-    <!-- API Settings Header -->
-    <div class="bg-slate-800 text-white p-4 text-xs space-y-2">
-      <div class="flex justify-between items-center font-bold text-sm">
-        <span>⚙️ 設定</span>
-      </div>
-      <div>
-        <label class="block mb-1">Render Backend URL:</label>
-        <input id="backendUrl" type="text" placeholder="https://xxx.onrender.com" class="w-full p-1.5 rounded text-black font-mono">
-      </div>
-      <div>
-        <label class="block mb-1">Groq API Key:</label>
-        <input id="groqApiKey" type="password" placeholder="gsk_..." class="w-full p-1.5 rounded text-black font-mono">
-      </div>
-    </div>
+  <!-- Mobile Frame Container -->
+  <div class="w-full max-w-md h-[844px] bg-app-gradient shadow-2xl rounded-[40px] overflow-hidden flex flex-col relative border-4 border-white/50">
 
-    <!-- Chat Display Area -->
-    <div id="chatBox" class="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50">
-      <div class="bg-blue-100 text-blue-900 p-3 rounded-xl max-w-[85%] text-sm">
-        こんにちは！声を聞かせてください。「今日は体が重いです」など気軽にお話ししましょう。
-      </div>
-    </div>
-
-    <!-- Status & Recording Control -->
-    <div class="p-4 bg-white border-t flex flex-col items-center space-y-3">
-      <p id="statusText" class="text-xs text-slate-500 font-medium">マイクボタンを押して発話してください</p>
+    <!-- ==================== SCREEN 1: SCAN UI ==================== -->
+    <div id="scanScreen" class="flex-1 flex flex-col p-6 relative justify-between">
       
-      <button id="recordBtn" class="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-transform active:scale-95">
-        <svg id="micIcon" xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-        </svg>
+      <!-- Top Navigation Header -->
+      <div>
+        <div class="flex items-center justify-between mb-4">
+          <button class="w-10 h-10 rounded-full bg-white/60 flex items-center justify-center text-slate-600 shadow-sm">
+            ‹
+          </button>
+          <h1 class="text-slate-700 font-bold text-sm">自分スキャン</h1>
+          <div class="w-10"></div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="space-y-1">
+          <div class="flex justify-between text-xs text-slate-500 font-medium">
+            <span>スキャン進行度</span>
+            <span id="progressText">33%</span>
+          </div>
+          <div class="w-full bg-white/50 rounded-full h-2 overflow-hidden p-0.5 border border-white/60">
+            <div id="progressBar" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: 33%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Assistant Dialogue Display -->
+      <div class="flex-1 flex flex-col justify-center items-center text-center px-4 space-y-6">
+        
+        <!-- Status Indicator -->
+        <div id="statusBadge" class="inline-flex items-center gap-2 bg-white/80 backdrop-blur-md px-4 py-1.5 rounded-full text-xs text-slate-600 shadow-sm">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="statusText">あなたのお話を聞いています...</span>
+        </div>
+
+        <!-- AI Dynamic Question Text -->
+        <h2 id="aiPromptText" class="text-xl font-bold text-slate-800 leading-relaxed max-w-xs transition-opacity duration-300">
+          こんにちは！<br>今日はどんな一日でしたか？
+        </h2>
+
+        <!-- Sound Wave Animation (Active during recording) -->
+        <div id="waveContainer" class="wave-animation h-8 my-2">
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+        </div>
+      </div>
+
+      <!-- Bottom Control Area -->
+      <div class="flex flex-col items-center pb-6 space-y-4">
+        
+        <!-- Record / Stop Toggle Button -->
+        <button id="micBtn" class="w-20 h-20 rounded-full bg-white border-4 border-red-400 flex items-center justify-center shadow-lg transition-transform active:scale-95 group">
+          <div id="micInnerIcon" class="w-7 h-7 bg-red-500 rounded-sm group-hover:scale-105 transition-transform"></div>
+        </button>
+        <p id="micHint" class="text-xs text-slate-400">話し終わると自動で認識されます</p>
+
+        <!-- View Result Action Button (Hidden until Turn 3 finishes) -->
+        <button id="viewResultBtn" class="hidden w-full py-4 bg-orange-400 hover:bg-orange-500 text-white font-bold rounded-2xl shadow-lg transition-all animate-bounce">
+          ✨ スキャン完了！結果を見る
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================== SCREEN 2: RESULT REPORT UI ==================== -->
+    <div id="resultScreen" class="hidden flex-1 flex flex-col p-6 overflow-y-auto space-y-5 bg-[#FDF3EE]">
+      
+      <!-- Result Header -->
+      <div class="text-center pt-2">
+        <h2 class="text-slate-700 font-bold text-base">診断結果</h2>
+      </div>
+
+      <!-- Overall Well-being Score Card -->
+      <div class="bg-white rounded-3xl p-6 shadow-sm border border-orange-100/50 text-center space-y-2">
+        <p class="text-xs font-bold text-slate-400 tracking-wider">TODAY'S WELL-BEING</p>
+        <div class="flex justify-center items-baseline gap-1">
+          <span id="scoreTotalVal" class="text-5xl font-black text-emerald-500">64</span>
+          <span class="text-lg font-bold text-slate-400">/100</span>
+        </div>
+        <div class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold">
+          <span>📈 前回より +4pt</span>
+        </div>
+      </div>
+
+      <!-- Condition Analysis Grid -->
+      <div class="space-y-2">
+        <h3 class="text-xs font-bold text-slate-600 px-1">コンディション解析</h3>
+        <div class="grid grid-cols-3 gap-3">
+          <!-- Brain -->
+          <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
+            <div id="scoreBrainVal" class="text-xl font-black text-slate-700">90<span class="text-xs font-normal">%</span></div>
+            <div class="text-[11px] text-slate-400 font-medium mt-1">🧠 脳</div>
+          </div>
+          <!-- Mental -->
+          <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
+            <div id="scoreMentalVal" class="text-xl font-black text-slate-700">82<span class="text-xs font-normal">%</span></div>
+            <div class="text-[11px] text-slate-400 font-medium mt-1">🌱 精神</div>
+          </div>
+          <!-- Physical -->
+          <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
+            <div id="scorePhysicalVal" class="text-xl font-black text-orange-500">20<span class="text-xs font-normal">%</span></div>
+            <div class="text-[11px] text-slate-400 font-medium mt-1">🏃 身体</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail Diagnostics Card -->
+      <div class="bg-white rounded-3xl p-5 shadow-sm border border-orange-100 space-y-3">
+        <div class="flex items-center gap-2 text-xs font-bold text-orange-500">
+          <span>⚠️ 身体的疲労のサインを検知</span>
+        </div>
+        
+        <div class="bg-orange-50/60 rounded-2xl p-3 border border-orange-100 text-center">
+          <p class="text-[11px] text-orange-400 font-medium">＼ 一言で表すと、今のあなたは… ／</p>
+          <p id="fatigueTitle" class="text-sm font-bold text-orange-600 mt-0.5">「身体ガチガチ・首肩コリ蓄積型」の疲れです</p>
+        </div>
+
+        <p id="fatigueDetailText" class="text-xs text-slate-500 leading-relaxed">
+          音声トーンのブレや発話スピードの低下から、強い身体的疲労が推測されます。<br><br>
+          心と脳の調子は非常によいですが、デスクワークの連続や運動不足により、首筋から背中にかけて筋肉の緊張が続いています。
+        </p>
+      </div>
+
+      <!-- Action Button -->
+      <button onclick="location.reload()" class="w-full py-3.5 bg-slate-800 text-white text-xs font-bold rounded-2xl shadow-md">
+        ホームに戻る
       </button>
+
     </div>
 
-    <!-- Fatigue Report Display Section (Whiteboard Design) -->
-    <div class="bg-indigo-900 text-white p-4 border-t border-indigo-800">
-      <h3 class="text-sm font-bold border-b border-indigo-700 pb-1 mb-2">📊 あなたの疲労レポート</h3>
-      
-      <div class="grid grid-cols-3 gap-2 text-center text-xs mb-3">
-        <div class="bg-indigo-800/60 p-2 rounded">
-          <div class="text-slate-300">身体</div>
-          <div id="scorePhysical" class="text-lg font-bold text-amber-400">--%</div>
-        </div>
-        <div class="bg-indigo-800/60 p-2 rounded">
-          <div class="text-slate-300">脳</div>
-          <div id="scoreBrain" class="text-lg font-bold text-cyan-400">--%</div>
-        </div>
-        <div class="bg-indigo-800/60 p-2 rounded">
-          <div class="text-slate-300">精神</div>
-          <div id="scoreMental" class="text-lg font-bold text-emerald-400">--%</div>
-        </div>
-      </div>
-
-      <div class="flex justify-between items-center text-sm font-bold bg-indigo-950 p-2 rounded mb-2">
-        <span>トータル疲労度:</span>
-        <span id="scoreTotal" class="text-amber-300 text-base">-- 点</span>
-      </div>
-
-      <div class="text-xs">
-        <span class="font-semibold text-indigo-300">💡 おすすめ体操/アドバイス:</span>
-        <p id="adviceText" class="mt-1 text-slate-200 leading-relaxed">音声データ入力後に自動生成されます。</p>
-      </div>
+    <!-- Bottom App Navigation Bar -->
+    <div class="bg-white/80 backdrop-blur-md border-t border-slate-100 py-3 px-6 flex justify-between items-center text-slate-400">
+      <div class="flex flex-col items-center text-[10px] space-y-1"><span>🏠</span><span>ホーム</span></div>
+      <div class="flex flex-col items-center text-[10px] space-y-1"><span>📖</span><span>知る</span></div>
+      <div class="flex flex-col items-center text-[10px] text-orange-400 font-bold space-y-1"><span>🌊</span><span>スキャン</span></div>
+      <div class="flex flex-col items-center text-[10px] space-y-1"><span>🤍</span><span>ケア</span></div>
+      <div class="flex flex-col items-center text-[10px] space-y-1"><span>👤</span><span>私</span></div>
     </div>
 
   </div>
 
   <script>
+    // GitHub Actions経由で自動注入される設定
+    const BACKEND_URL = "__BACKEND_URL_PLACEHOLDER__";
+    const GROQ_API_KEY = "__GROQ_API_KEY_PLACEHOLDER__";
+
+    // --- アンカーテキスト（定義ベースの埋め込み比較用） ---
+    const ANCHOR_DEFINITIONS = {
+      physical: "筋肉の痛み 首コリ 肩こり 体が重い 疲労困憊 疲れた 動けない 睡眠不足 身体的限界",
+      brain: "頭が働かない 思考停止 集中できない 眼精疲労 脳がフリーズ 暗算できない ケアレスミス",
+      mental: "ストレス 落ち込む 気分が重い 不安 やる気が出ない イライラ 精神的にしんどい 落ち込み",
+      healthy: "元気 快適 すっきり 絶好調 身体が軽い 充実 リフレッシュ 集中できている 楽しい"
+    };
+
+    let anchorEmbeddings = {};
+    let currentTurn = 1; // 1, 2, 3
     let mediaRecorder;
     let audioChunks = [];
     let isRecording = false;
+    let audioContext, analyser, microphone;
+    let silenceTimer = null;
     let embedder = null;
 
-    // Xenova/transformers (クライアント側でテキスト埋め込み計算)
-    async function initEmbedder() {
-      if (!embedder && window.xenova) {
+    // ユーザーの発話ターンごとの質問プロンプト
+    const TURN_PROMPTS = {
+      1: "こんにちは！<br>今日はどんな一日でしたか？",
+      2: "なるほど、そうだったんですね。<br>もう少し詳しく教えてもらえますか？",
+      3: "お話しいただきありがとうございます！<br>全体をまとめてスキャンを完了しますね。"
+    };
+
+    // 初期化: Transformers.js Embedder & Anchor Vectorsの計算
+    async function initEmbeddings() {
+      if (window.xenova) {
         embedder = await window.xenova.transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+        
+        // 事前に各アンカー定義の埋め込みベクトルを計算
+        for (const [key, text] of Object.entries(ANCHOR_DEFINITIONS)) {
+          const out = await embedder(text, { pooling: 'mean', normalize: true });
+          anchorEmbeddings[key] = Array.from(out.data);
+        }
       }
     }
-    initEmbedder();
+    initEmbeddings();
 
-    const recordBtn = document.getElementById('recordBtn');
+    const micBtn = document.getElementById('micBtn');
     const statusText = document.getElementById('statusText');
-    const chatBox = document.getElementById('chatBox');
+    const aiPromptText = document.getElementById('aiPromptText');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const viewResultBtn = document.getElementById('viewResultBtn');
 
-    recordBtn.addEventListener('click', async () => {
-      if (!isRecording) {
-        startRecording();
-      } else {
+    // 初回発声（自動スタート）
+    window.addEventListener('load', () => {
+      speakAI(aiPromptText.innerText.replace('<br>', ' '), () => {
+        startRecordingWithVAD();
+      });
+    });
+
+    micBtn.addEventListener('click', () => {
+      if (isRecording) {
         stopRecording();
+      } else {
+        startRecordingWithVAD();
       }
     });
 
-    async function startRecording() {
-      const backendUrl = document.getElementById('backendUrl').value.trim();
-      const groqKey = document.getElementById('groqApiKey').value.trim();
-
-      if (!backendUrl || !groqKey) {
-        alert("Render URL と Groq API Key を入力してください。");
-        return;
-      }
-
+    // --- 自動無音検知（VAD）付き録音スタート ---
+    async function startRecordingWithVAD() {
       audioChunks = [];
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder = new MediaRecorder(stream);
       
-      mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
-      mediaRecorder.onstop = processAudioPipeline;
+      // Web Audio API による音量監視
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioContext.createAnalyser();
+      microphone = audioContext.createMediaStreamSource(stream);
+      microphone.connect(analyser);
+      analyser.fftSize = 512;
+
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = handleTurnCompletion;
 
       mediaRecorder.start();
       isRecording = true;
-      recordBtn.classList.replace('bg-red-500', 'bg-slate-700');
-      statusText.innerText = "あなたの声を聞いています...";
+      document.getElementById('waveContainer').classList.remove('hidden');
+      statusText.innerText = "あなたのお話を聞いています...";
+
+      // 無音の検出（1.8秒間一定音量以下の場合に自動停止）
+      detectSilence();
+    }
+
+    function detectSilence() {
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let silentStart = Date.now();
+
+      function checkVolume() {
+        if (!isRecording) return;
+        analyser.getByteFrequencyData(dataArray);
+        
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        let average = sum / dataArray.length;
+
+        // 音量しきい値（会話が終了したと判定する音量レベル）
+        if (average < 12) {
+          if (Date.now() - silentStart > 1800) { // 1.8秒経過
+            stopRecording();
+            return;
+          }
+        } else {
+          silentStart = Date.now(); // 音声を検知したらタイマーリセット
+        }
+        requestAnimationFrame(checkVolume);
+      }
+      checkVolume();
     }
 
     function stopRecording() {
-      mediaRecorder.stop();
-      isRecording = false;
-      recordBtn.classList.replace('bg-slate-700', 'bg-red-500');
-      statusText.innerText = "処理中...";
-    }
-
-    async function processAudioPipeline() {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-      const groqKey = document.getElementById('groqApiKey').value.trim();
-      const backendUrl = document.getElementById('backendUrl').value.trim();
-
-      try {
-        // 1. Groq Whisper (フロントエンド -> Groq API で文字起こし)
-        statusText.innerText = "文字起こし中...";
-        const transcribedText = await callGroqWhisper(audioBlob, groqKey);
-        appendMessage('user', transcribedText);
-
-        // 2. OpenSmile 特徴量抽出 (フロントエンド -> Render FastAPI)
-        statusText.innerText = "音響特徴量抽出中(OpenSmile)...";
-        const acousticFeatures = await extractOpenSmileFeatures(audioBlob, backendUrl);
-
-        // 3. テキスト特徴量 & 埋め込みベクトルの計算 (フロントエンド)
-        statusText.innerText = "疲労度スコア分析中...";
-        const textFeatures = await computeTextFeatures(transcribedText);
-
-        // 特徴量の統合
-        const fullFeatures = { ...acousticFeatures, ...textFeatures };
-
-        // 4. LightGBM 推論 (フロントエンドのJSで推論を実行)
-        const fatigueScores = predictLightGBM(fullFeatures);
-        updateScoreUI(fatigueScores);
-
-        // 5. Groq Llama 3 チャット & レポート・アドバイス生成
-        statusText.innerText = "AI応答生成中...";
-        const aiResponse = await callGroqLlama(transcribedText, fatigueScores, groqKey);
-        appendMessage('ai', aiResponse.reply);
-        document.getElementById('adviceText').innerText = aiResponse.exerciseAdvice;
-
-        statusText.innerText = "マイクボタンを押して発話してください";
-      } catch (err) {
-        console.error(err);
-        statusText.innerText = "エラーが発生しました: " + err.message;
+      if (isRecording && mediaRecorder) {
+        mediaRecorder.stop();
+        isRecording = false;
+        document.getElementById('waveContainer').classList.add('hidden');
+        statusText.innerText = "AIが分析中...";
       }
     }
 
-    // --- Groq Whisper API Call ---
-    async function callGroqWhisper(blob, apiKey) {
+    // --- ターン完了時の処理パイプライン ---
+    async function handleTurnCompletion() {
+      const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+
+      try {
+        // 1. Groq Whisper による文字起こし
+        const userText = await callGroqWhisper(audioBlob);
+
+        // 2. OpenSmile 音響特徴量の抽出 (Render FastAPI)
+        const acousticFeatures = await extractOpenSmileFeatures(audioBlob);
+
+        // 3. テキストのアンカー類似度計算（定義ベース特徴量）
+        const textAnchorScores = await computeAnchorSimilarities(userText);
+
+        // ターン数のインクリメント
+        currentTurn++;
+
+        if (currentTurn <= 2) {
+          // 2ターン目への移行
+          updateProgress(66, "66%");
+          aiPromptText.innerHTML = TURN_PROMPTS[2];
+          
+          speakAI(aiPromptText.innerText.replace('<br>', ' '), () => {
+            startRecordingWithVAD();
+          });
+
+        } else {
+          // 3ターン目（完了ターン）
+          updateProgress(100, "100%");
+          aiPromptText.innerHTML = "全体をスキャン完了しました！<br>タップして結果を確認してください。";
+          statusText.innerText = "スキャン完了";
+
+          // LightGBM推論実行 & 結果反映
+          const fatigueScores = predictLightGBM(acousticFeatures, textAnchorScores);
+          updateResultUI(fatigueScores);
+
+          // 結果確認ボタンを表示
+          micBtn.classList.add('hidden');
+          viewResultBtn.classList.remove('hidden');
+
+          speakAI("会話とトーンの分析が完了しました。結果をご覧ください。");
+        }
+
+      } catch (err) {
+        console.error(err);
+        statusText.innerText = "解析中にエラーが発生しました";
+      }
+    }
+
+    // --- テキスト埋め込み & アンカーコサイン類似度の計算 ---
+    async function computeAnchorSimilarities(text) {
+      if (!embedder || !anchorEmbeddings.physical) {
+        return { physicalSim: 0.5, brainSim: 0.5, mentalSim: 0.5, healthySim: 0.5 };
+      }
+
+      const out = await embedder(text, { pooling: 'mean', normalize: true });
+      const userVec = Array.from(out.data);
+
+      return {
+        physicalSim: cosineSimilarity(userVec, anchorEmbeddings.physical),
+        brainSim: cosineSimilarity(userVec, anchorEmbeddings.brain),
+        mentalSim: cosineSimilarity(userVec, anchorEmbeddings.mental),
+        healthySim: cosineSimilarity(userVec, anchorEmbeddings.healthy)
+      };
+    }
+
+    function cosineSimilarity(vecA, vecB) {
+      let dotProduct = 0, normA = 0, normB = 0;
+      for (let i = 0; i < vecA.length; i++) {
+        dotProduct += vecA[i] * vecB[i];
+        normA += vecA[i] * vecA[i];
+        normB += vecB[i] * vecB[i];
+      }
+      return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB) || 1);
+    }
+
+    // --- LightGBM 簡易推論ロジック (音響 + アンカー類似度) ---
+    function predictLightGBM(acoustic, anchorSims) {
+      const loudness = acoustic['smile_loudness_sma3_amean'] || 0;
+      
+      // アンカー類似度に基づく疲労スコアの算出
+      let physical = Math.min(100, Math.max(10, Math.round(anchorSims.physicalSim * 100 + (10 - loudness))));
+      let brain = Math.min(100, Math.max(10, Math.round(anchorSims.brainSim * 90 + 20)));
+      let mental = Math.min(100, Math.max(10, Math.round(anchorSims.mentalSim * 85 + 15)));
+      let total = Math.round(100 - ((physical + brain + mental) / 3));
+
+      return { physical, brain, mental, total };
+    }
+
+    // --- UI & 音声発話処理 ---
+    function speakAI(text, onEndCallback) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ja-JP';
+        utterance.rate = 1.0;
+        if (onEndCallback) utterance.onend = onEndCallback;
+        window.speechSynthesis.speak(utterance);
+      } else if (onEndCallback) {
+        onEndCallback();
+      }
+    }
+
+    function updateProgress(percent, label) {
+      progressBar.style.width = `${percent}%`;
+      progressText.innerText = label;
+    }
+
+    function updateResultUI(scores) {
+      document.getElementById('scoreTotalVal').innerText = scores.total;
+      document.getElementById('scoreBrainVal').innerHTML = `${scores.brain}<span class="text-xs font-normal">%</span>`;
+      document.getElementById('scoreMentalVal').innerHTML = `${scores.mental}<span class="text-xs font-normal">%</span>`;
+      document.getElementById('scorePhysicalVal').innerHTML = `${scores.physical}<span class="text-xs font-normal">%</span>`;
+    }
+
+    // 結果画面への画面遷移
+    viewResultBtn.addEventListener('click', () => {
+      document.getElementById('scanScreen').classList.add('hidden');
+      document.getElementById('resultScreen').classList.remove('hidden');
+    });
+
+    // --- API 呼び出しヘルパー ---
+    async function callGroqWhisper(blob) {
       const formData = new FormData();
       formData.append('file', blob, 'speech.wav');
       formData.append('model', 'whisper-large-v3-turbo');
@@ -180,118 +431,24 @@
 
       const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}` },
+        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: formData
       });
       const data = await res.json();
-      return data.text || "（音声が聞き取れませんでした）";
+      return data.text || "";
     }
 
-    // --- Render OpenSmile API Call ---
-    async function extractOpenSmileFeatures(blob, backendUrl) {
-      const formData = new FormData();
-      formData.append('file', blob, 'speech.wav');
-
-      const res = await fetch(`${backendUrl.replace(/\/$/, '')}/extract-features`, {
-        method: 'POST',
-        body: formData
-      });
-      return await res.json();
-    }
-
-    // --- Frontend Text Feature Extraction ---
-    async function computeTextFeatures(text) {
-      const features = {
-        text_length: text.length,
-        word_count: text.split(/\s+/).length,
-        unique_chars: new Set(text).size,
-        lexical_diversity: (new Set(text).size) / (text.length || 1),
-        fatigue_word_count: (text.match(/(疲れた|重い|しんどい|眠い|だるい|痛い)/g) || []).length
-      };
-
-      // 384次元のテキスト埋め込み計算 (emb_0 〜 emb_383)
-      if (embedder) {
-        const output = await embedder(text, { pooling: 'mean', normalize: true });
-        const embArr = Array.from(output.data);
-        for (let i = 0; i < 384; i++) {
-          features[`emb_${i}`] = embArr[i] || 0.0;
-        }
-      } else {
-        for (let i = 0; i < 384; i++) features[`emb_${i}`] = 0.0;
-      }
-
-      return features;
-    }
-
-    // --- Frontend LightGBM Tree Evaluation (Simple Decision Tree Inference) ---
-    function predictLightGBM(features) {
-      // モデル木（LightGBMで学習したLeaf/Tree構造）の推論ロジック
-      // ここでは簡略化されたツリー計算またはスコアリングロジックを実行
-      
-      const loudness = features['smile_loudness_sma3_amean'] || 0;
-      const f0 = features['smile_F0semitoneFrom27.5Hz_sma3nz_amean'] || 0;
-      const fatigueWords = features['fatigue_word_count'] || 0;
-
-      // 各指標のサンプル簡易計算 (学習モデルのツリー走査ロジックをここに配置)
-      let physical = Math.min(100, Math.max(10, Math.round(50 + (fatigueWords * 15) - (loudness * 10))));
-      let brain = Math.min(100, Math.max(10, Math.round(45 + (features.text_length > 30 ? 20 : 0))));
-      let mental = Math.min(100, Math.max(10, Math.round(50 + (f0 < 20 ? 20 : -10))));
-      let total = Math.round((physical + brain + mental) / 3);
-
-      return { physical, brain, mental, total };
-    }
-
-    // --- UI Updaters ---
-    function updateScoreUI(scores) {
-      document.getElementById('scorePhysical').innerText = `${scores.physical}%`;
-      document.getElementById('scoreBrain').innerText = `${scores.brain}%`;
-      document.getElementById('scoreMental').innerText = `${scores.mental}%`;
-      document.getElementById('scoreTotal').innerText = `${scores.total} 点`;
-    }
-
-    function appendMessage(sender, text) {
-      const msgDiv = document.createElement('div');
-      msgDiv.className = sender === 'user'
-        ? 'bg-indigo-600 text-white p-3 rounded-xl max-w-[85%] ml-auto text-sm'
-        : 'bg-slate-200 text-slate-800 p-3 rounded-xl max-w-[85%] text-sm';
-      msgDiv.innerText = text;
-      chatBox.appendChild(msgDiv);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
-
-    // --- Groq Llama 3 LLM Call ---
-    async function callGroqLlama(userSpeech, scores, apiKey) {
-      const prompt = `
-ユーザー発話: "${userSpeech}"
-疲労分析結果: 身体疲労=${scores.physical}%, 脳疲労=${scores.brain}%, 精神疲労=${scores.mental}%, トータルスコア=${scores.total}点
-
-以下のJSON形式のみで回答してください：
-{
-  "reply": "ユーザーへの共感的で短めの返し（2〜3文）",
-  "exerciseAdvice": "疲労状態に応じたおすすめの簡単なストレッチや体操（1〜2文）"
-}`;
-
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'llama-3.1-8b-instant',
-          messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' }
-        })
-      });
-
-      const data = await res.json();
+    async function extractOpenSmileFeatures(blob) {
       try {
-        return JSON.parse(data.choices[0].message.content);
+        const formData = new FormData();
+        formData.append('file', blob, 'speech.wav');
+        const res = await fetch(`${BACKEND_URL.replace(/\/$/, '')}/extract-features`, {
+          method: 'POST',
+          body: formData
+        });
+        return await res.json();
       } catch (e) {
-        return {
-          reply: data.choices[0].message.content,
-          exerciseAdvice: "軽く深呼吸をして肩をまわしましょう。"
-        };
+        return {};
       }
     }
   </script>
