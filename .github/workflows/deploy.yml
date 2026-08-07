@@ -2,10 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ main ] # メインブランチにプッシュしたときに実行
-
-permissions:
-  contents: write
+    branches: [ main ]
 
 jobs:
   build-and-deploy:
@@ -17,13 +14,18 @@ jobs:
       - name: Inject Environment Variables
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          BACKEND_URL: ${{ secrets.BACKEND_URL }} # RenderのURLをSecretにする場合
         run: |
-          # index.html 内のプレースホルダーを実際のSecretの値に置換
-          sed -i 's|__GROQ_API_KEY_PLACEHOLDER__|'"$GROQ_API_KEY"'|g' index.html
-          # ※ BACKEND_URLを固定したい場合はRenderのURLをSecretに入れておく。
-          # もしくは直接文字列としてスクリプト内に書いても動きます。
-          sed -i 's|__BACKEND_URL_PLACEHOLDER__|https://voicechat-gz4j.onrender.com|g' index.html
+          # プレースホルダーをGitHub Secretsの実際の値に安全に置換する
+          # パイプ（|）ではなくデリミタを変更して確実に置換
+          python3 -c '
+          import os
+          with open("index.html", "r", encoding="utf-8") as f:
+              content = f.read()
+          content = content.replace("__GROQ_API_KEY_PLACEHOLDER__", os.environ["GROQ_API_KEY"])
+          content = content.replace("__BACKEND_URL_PLACEHOLDER__", "https://voicechat-gz4j.onrender.com")
+          with open("index.html", "w", encoding="utf-8") as f:
+              f.write(content)
+          '
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
