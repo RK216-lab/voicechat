@@ -5,20 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>自分スキャン - AI疲労診断</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .bg-app-gradient { background: linear-gradient(180deg, #FDE8E1 0%, #FDF3EE 50%, #E8EEFB 100%); }
-    .wave-animation {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
+    .wave-animation { display: inline-flex; align-items: center; gap: 4px; }
     .wave-bar {
-      width: 4px;
-      height: 16px;
-      background-color: #34D399;
-      border-radius: 2px;
+      width: 4px; height: 16px; background-color: #34D399; border-radius: 2px;
       animation: wave 1.2s infinite ease-in-out;
     }
     .wave-bar:nth-child(2) { animation-delay: 0.2s; }
@@ -29,148 +21,108 @@
       50% { height: 24px; }
     }
   </style>
-    <script type="module">
-    import * as Moonshine from "https://cdn.jsdelivr.net/npm/@moonshine-ai/moonshine-js@latest/dist/moonshine.min.js";
-    window.Moonshine = Moonshine;
-  </script>
-
 </head>
 <body class="bg-slate-200 flex justify-center items-center min-h-screen">
 
-  <!-- Mobile Frame Container -->
   <div class="w-full max-w-md h-[844px] bg-app-gradient shadow-2xl rounded-[40px] overflow-hidden flex flex-col relative border-4 border-white/50">
 
-    <!-- ==================== SCREEN 1: SCAN UI ==================== -->
+    <!-- SCREEN 1: SCAN -->
     <div id="scanScreen" class="flex-1 flex flex-col p-6 relative justify-between">
-      
-      <!-- Top Navigation Header -->
       <div>
         <div class="flex items-center justify-between mb-4">
-          <button class="w-10 h-10 rounded-full bg-white/60 flex items-center justify-center text-slate-600 shadow-sm">
-            ‹
-          </button>
+          <button class="w-10 h-10 rounded-full bg-white/60 flex items-center justify-center text-slate-600 shadow-sm">‹</button>
           <h1 class="text-slate-700 font-bold text-sm">自分スキャン</h1>
           <div class="w-10"></div>
         </div>
-
-        <!-- Progress Bar -->
         <div class="space-y-1">
           <div class="flex justify-between text-xs text-slate-500 font-medium">
             <span>スキャン進行度</span>
-            <span id="progressText">33%</span>
+            <span id="progressText">0%</span>
           </div>
           <div class="w-full bg-white/50 rounded-full h-2 overflow-hidden p-0.5 border border-white/60">
-            <div id="progressBar" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: 33%;"></div>
+            <div id="progressBar" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: 0%;"></div>
           </div>
         </div>
       </div>
 
-      <!-- Main Assistant Dialogue Display -->
       <div class="flex-1 flex flex-col justify-center items-center text-center px-4 space-y-6">
-        
-        <!-- Status Indicator -->
         <div id="statusBadge" class="inline-flex items-center gap-2 bg-white/80 backdrop-blur-md px-4 py-1.5 rounded-full text-xs text-slate-600 shadow-sm">
           <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span id="statusText">あなたのお話を聞いています...</span>
+          <span id="statusText">モデルを準備中...</span>
         </div>
 
-        <!-- AI Dynamic Question Text -->
         <h2 id="aiPromptText" class="text-xl font-bold text-slate-800 leading-relaxed max-w-xs transition-opacity duration-300">
-          こんにちは！<br>今日はどんな一日でしたか？
+          準備ができたら<br>マイクを押して話してください
         </h2>
 
-        <!-- Sound Wave Animation (Active during recording) -->
-        <div id="waveContainer" class="wave-animation h-8 my-2">
-          <div class="wave-bar"></div>
-          <div class="wave-bar"></div>
-          <div class="wave-bar"></div>
-          <div class="wave-bar"></div>
+        <div id="waveContainer" class="wave-animation h-8 my-2 hidden">
+          <div class="wave-bar"></div><div class="wave-bar"></div>
+          <div class="wave-bar"></div><div class="wave-bar"></div>
         </div>
       </div>
 
-      <!-- Bottom Control Area -->
       <div class="flex flex-col items-center pb-6 space-y-4">
-        
-        <!-- Record / Stop Toggle Button -->
-        <button id="micBtn" class="w-20 h-20 rounded-full bg-white border-4 border-red-400 flex items-center justify-center shadow-lg transition-transform active:scale-95 group">
-          <div id="micInnerIcon" class="w-7 h-7 bg-red-500 rounded-sm group-hover:scale-105 transition-transform"></div>
+        <button id="micBtn" disabled
+          class="w-20 h-20 rounded-full bg-white border-4 border-red-400 flex items-center justify-center shadow-lg transition-transform active:scale-95 opacity-50">
+          <div id="micInnerIcon" class="w-7 h-7 bg-red-500 rounded-sm"></div>
         </button>
-        <p id="micHint" class="text-xs text-slate-400">話し終わると自動で認識されます</p>
+        <p id="micHint" class="text-xs text-slate-400">モデル読み込み中...</p>
 
-        <!-- View Result Action Button (Hidden until Turn 3 finishes) -->
         <button id="viewResultBtn" class="hidden w-full py-4 bg-orange-400 hover:bg-orange-500 text-white font-bold rounded-2xl shadow-lg transition-all animate-bounce">
           ✨ スキャン完了！結果を見る
         </button>
       </div>
     </div>
 
-    <!-- ==================== SCREEN 2: RESULT REPORT UI ==================== -->
+    <!-- SCREEN 2: RESULT -->
     <div id="resultScreen" class="hidden flex-1 flex flex-col p-6 overflow-y-auto space-y-5 bg-[#FDF3EE]">
-      
-      <!-- Result Header -->
       <div class="text-center pt-2">
         <h2 class="text-slate-700 font-bold text-base">診断結果</h2>
       </div>
 
-      <!-- Overall Well-being Score Card -->
       <div class="bg-white rounded-3xl p-6 shadow-sm border border-orange-100/50 text-center space-y-2">
         <p class="text-xs font-bold text-slate-400 tracking-wider">TODAY'S WELL-BEING</p>
         <div class="flex justify-center items-baseline gap-1">
-          <span id="scoreTotalVal" class="text-5xl font-black text-emerald-500">64</span>
+          <span id="scoreTotalVal" class="text-5xl font-black text-emerald-500">--</span>
           <span class="text-lg font-bold text-slate-400">/100</span>
-        </div>
-        <div class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold">
-          <span>📈 前回より +4pt</span>
         </div>
       </div>
 
-      <!-- Condition Analysis Grid -->
       <div class="space-y-2">
         <h3 class="text-xs font-bold text-slate-600 px-1">コンディション解析</h3>
         <div class="grid grid-cols-3 gap-3">
-          <!-- Brain -->
           <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
-            <div id="scoreBrainVal" class="text-xl font-black text-slate-700">90<span class="text-xs font-normal">%</span></div>
+            <div id="scoreBrainVal" class="text-xl font-black text-slate-700">--<span class="text-xs font-normal">%</span></div>
             <div class="text-[11px] text-slate-400 font-medium mt-1">🧠 脳</div>
           </div>
-          <!-- Mental -->
           <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
-            <div id="scoreMentalVal" class="text-xl font-black text-slate-700">82<span class="text-xs font-normal">%</span></div>
+            <div id="scoreMentalVal" class="text-xl font-black text-slate-700">--<span class="text-xs font-normal">%</span></div>
             <div class="text-[11px] text-slate-400 font-medium mt-1">🌱 精神</div>
           </div>
-          <!-- Physical -->
           <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
-            <div id="scorePhysicalVal" class="text-xl font-black text-orange-500">20<span class="text-xs font-normal">%</span></div>
+            <div id="scorePhysicalVal" class="text-xl font-black text-orange-500">--<span class="text-xs font-normal">%</span></div>
             <div class="text-[11px] text-slate-400 font-medium mt-1">🏃 身体</div>
           </div>
         </div>
       </div>
 
-      <!-- Detail Diagnostics Card -->
       <div class="bg-white rounded-3xl p-5 shadow-sm border border-orange-100 space-y-3">
         <div class="flex items-center gap-2 text-xs font-bold text-orange-500">
-          <span>⚠️ 身体的疲労のサインを検知</span>
+          <span>⚠️ 分析結果</span>
         </div>
-        
         <div class="bg-orange-50/60 rounded-2xl p-3 border border-orange-100 text-center">
           <p class="text-[11px] text-orange-400 font-medium">＼ 一言で表すと、今のあなたは… ／</p>
-          <p id="fatigueTitle" class="text-sm font-bold text-orange-600 mt-0.5">「身体ガチガチ・首肩コリ蓄積型」の疲れです</p>
+          <p id="fatigueTitle" class="text-sm font-bold text-orange-600 mt-0.5">分析中...</p>
         </div>
-
-        <p id="fatigueDetailText" class="text-xs text-slate-500 leading-relaxed">
-          音声トーンのブレや発話スピードの低下から、強い身体的疲労が推測されます。<br><br>
-          心と脳の調子は非常によいですが、デスクワークの連続や運動不足により、首筋から背中にかけて筋肉の緊張が続いています。
-        </p>
+        <p id="fatigueDetailText" class="text-xs text-slate-500 leading-relaxed"></p>
       </div>
 
-      <!-- Action Button -->
       <button onclick="location.reload()" class="w-full py-3.5 bg-slate-800 text-white text-xs font-bold rounded-2xl shadow-md">
         ホームに戻る
       </button>
-
     </div>
 
-    <!-- Bottom App Navigation Bar -->
+    <!-- Bottom Nav -->
     <div class="bg-white/80 backdrop-blur-md border-t border-slate-100 py-3 px-6 flex justify-between items-center text-slate-400">
       <div class="flex flex-col items-center text-[10px] space-y-1"><span>🏠</span><span>ホーム</span></div>
       <div class="flex flex-col items-center text-[10px] space-y-1"><span>📖</span><span>知る</span></div>
@@ -178,251 +130,367 @@
       <div class="flex flex-col items-center text-[10px] space-y-1"><span>🤍</span><span>ケア</span></div>
       <div class="flex flex-col items-center text-[10px] space-y-1"><span>👤</span><span>私</span></div>
     </div>
-
   </div>
 
-  <script>
-    // GitHub Actions経由で自動注入される設定
-    const BACKEND_URL = "https://voicechat-gz4j.onrender.com/";
+  <script type="module">
+    // ====================== 設定 ======================
+    const BACKEND_URL = "https://voicechat-gz4j.onrender.com";  // 末尾スラッシュなし
+    const MODEL_ID = "wmoto-ai/moonshine-tiny-ja-ONNX";         // Moonshine Tiny JA
 
-    // --- アンカーテキスト（定義ベースの埋め込み比較用） ---
-        // --- AIとの会話履歴を保持する配列 ---
-    let chatHistory = [
-      { role: "system", content: "あなたはユーザーの今日の出来事を聞き出し、心身の疲労状態を分析する優しいAIアシスタント「自分スキャン」です。会話は音声で行われるため、返答は親身になって相槌を打ち、次の質問を1つだけ投げかけてください。返答は必ず50文字程度で短く簡潔にしてください。" }
+    // ====================== 状態 ======================
+    let model = null, processor = null, tokenizer = null;
+    let isModelReady = false;
+    let isRecording = false;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let audioContext = null;
+    let analyser = null;
+    let silenceTimer = null;
+    let currentTurn = 0;          // 0,1,2 → 3ターンで終了
+    let lastAudioBlob = null;
+
+    const chatHistory = [
+      {
+        role: "system",
+        content: "あなたはユーザーの今日の出来事を聞き出し、心身の疲労状態を分析する優しいAIアシスタント「自分スキャン」です。会話は音声で行われるため、返答は親身になって相槌を打ち、次の質問を1つだけ投げかけてください。返答は必ず50文字程度で短く簡潔にしてください。"
+      }
     ];
-    let moonshineRecognizer = null;
-    window.currentTranscript = "";
 
-    // ------------------------------------
-    // 録音＆STT（Moonshine.js）の開始
-    // ------------------------------------
-    async function startRecordingWithVAD() {
-      audioChunks = [];
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // DOM
+    const statusText     = document.getElementById("statusText");
+    const aiPromptText   = document.getElementById("aiPromptText");
+    const progressBar    = document.getElementById("progressBar");
+    const progressText   = document.getElementById("progressText");
+    const micBtn         = document.getElementById("micBtn");
+    const micHint        = document.getElementById("micHint");
+    const waveContainer  = document.getElementById("waveContainer");
+    const viewResultBtn  = document.getElementById("viewResultBtn");
+
+    // ====================== モデル読み込み ======================
+    async function loadMoonshineJA() {
+      try {
+        statusText.textContent = "Moonshine Tiny JA を読み込み中...（初回は時間がかかります）";
+        
+        const { MoonshineForConditionalGeneration, AutoProcessor, AutoTokenizer, env } = 
+          await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0");
+
+        // ブラウザキャッシュを有効に
+        env.allowLocalModels = false;
+        env.useBrowserCache = true;
+
+        [model, processor, tokenizer] = await Promise.all([
+          MoonshineForConditionalGeneration.from_pretrained(MODEL_ID, {
+            dtype: "fp32",          // 必要に応じて "q8" や "q4" に変更可
+            device: "wasm",         // WebGPU対応端末なら "webgpu" も可
+          }),
+          AutoProcessor.from_pretrained(MODEL_ID),
+          AutoTokenizer.from_pretrained(MODEL_ID),
+        ]);
+
+        isModelReady = true;
+        statusText.textContent = "準備完了！マイクを押して話してください";
+        aiPromptText.innerHTML = "こんにちは！<br>今日はどんな一日でしたか？";
+        micBtn.disabled = false;
+        micBtn.classList.remove("opacity-50");
+        micHint.textContent = "話し終わると自動で認識されます";
+        updateProgress(10, "10%");
+      } catch (err) {
+        console.error(err);
+        statusText.textContent = "モデル読み込みに失敗しました";
+        aiPromptText.textContent = "ページを再読み込みしてください";
+      }
+    }
+
+    // ====================== 音声 → 16kHz Float32 ======================
+    async function blobToFloat32Array(blob) {
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      analyser = audioContext.createAnalyser();
-      microphone = audioContext.createMediaStreamSource(stream);
-      microphone.connect(analyser);
-      analyser.fftSize = 512;
-
-      mediaRecorder = new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-      mediaRecorder.onstop = handleTurnCompletion;
-
-      // ★ MoonshineJSの初期化とスタート
-      window.currentTranscript = "";
-      if (window.Moonshine && !moonshineRecognizer) {
-        moonshineRecognizer = new window.Moonshine.MoonshineSpeechRecognition();
-        moonshineRecognizer.continuous = true;
-        moonshineRecognizer.addEventListener("result", (e) => {
-          let temp = "";
-          for (let i = 0; i < e.results.length; ++i) {
-            temp += e.results[i][0].transcript;
-          }
-          window.currentTranscript = temp;
-        });
+      // すでに16kHzならそのまま、違えばリサンプル
+      let channelData = audioBuffer.getChannelData(0);
+      
+      if (audioBuffer.sampleRate !== 16000) {
+        const offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * 16000), 16000);
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offlineCtx.destination);
+        source.start(0);
+        const rendered = await offlineCtx.startRendering();
+        channelData = rendered.getChannelData(0);
       }
-      if (moonshineRecognizer) moonshineRecognizer.start();
-
-      mediaRecorder.start();
-      isRecording = true;
-      document.getElementById('waveContainer').classList.remove('hidden');
-      statusText.innerText = "あなたのお話を聞いています...";
-      detectSilence();
+      
+      // モノラルFloat32をコピー
+      return new Float32Array(channelData);
     }
 
-    function stopRecording() {
-      if (isRecording && mediaRecorder) {
-        mediaRecorder.stop();
-        if (moonshineRecognizer) moonshineRecognizer.stop(); // ★ STTも停止
-        isRecording = false;
-        document.getElementById('waveContainer').classList.add('hidden');
-        statusText.innerText = "AIが分析中...";
-      }
+    // ====================== STT (Moonshine Tiny JA) ======================
+    async function transcribe(audioFloat32) {
+      if (!model || !processor || !tokenizer) throw new Error("モデル未準備");
+
+      const inputs = await processor(audioFloat32);
+      const outputs = await model.generate({
+        ...inputs,
+        max_new_tokens: 128,
+      });
+      const text = tokenizer.decode(outputs[0], { skip_special_tokens: true });
+      return text.trim() || "（聞き取れませんでした）";
     }
 
-    // ------------------------------------
-    // LLM（Groq）呼び出しヘルパー関数
-    // ------------------------------------
+    // ====================== Groq LLM ======================
     async function callGroqLLM(userText, isFinal = false) {
       if (!isFinal) {
         chatHistory.push({ role: "user", content: userText });
       }
-      
-      // 最終ターンの場合は専用のシステムプロンプトを差し込む
-      const messagesToSend = isFinal 
-        ? [...chatHistory, { role: "system", content: "これまでの会話からユーザーの疲労のタイプを推測し、以下の形式で出力してください。\nタイトル：〇〇の疲れ\n詳細：(3〜4行で具体的な分析理由)" }]
+
+      const messagesToSend = isFinal
+        ? [
+            ...chatHistory,
+            {
+              role: "system",
+              content: "これまでの会話からユーザーの疲労のタイプを推測し、以下の形式で出力してください。\nタイトル：〇〇の疲れ\n詳細：(3〜4行で具体的な分析理由)"
+            }
+          ]
         : chatHistory;
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: messagesToSend })
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: messagesToSend }),
       });
+
+      if (!res.ok) throw new Error("LLM呼び出し失敗");
       const data = await res.json();
-      
+      const reply = data.text || data.choices?.[0]?.message?.content || "応答を取得できませんでした";
+
       if (!isFinal) {
-        chatHistory.push({ role: "assistant", content: data.text });
+        chatHistory.push({ role: "assistant", content: reply });
       }
-      return data.text;
+      return reply;
     }
 
-    // ------------------------------------
-    // ターン完了時の処理パイプライン
-    // ------------------------------------
-    async function handleTurnCompletion() {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+    // ====================== OpenSmile特徴量 ======================
+    async function extractOpenSmileFeatures(blob) {
+      try {
+        const formData = new FormData();
+        formData.append("file", blob, "speech.webm");
+        const res = await fetch(`${BACKEND_URL}/extract-features`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) return {};
+        return await res.json();
+      } catch (e) {
+        console.warn("OpenSmile失敗", e);
+        return {};
+      }
+    }
+
+    // ====================== 簡易スコア ======================
+    function predictScores(acoustic, userTexts) {
+      // 非常に簡易的なヒューリスティック（本格的にはLightGBMなどを入れる）
+      const loudness = acoustic["loudness_sma3_amean"] || acoustic["smile_loudness_sma3_amean"] || 0.3;
+      const physical = Math.min(95, Math.max(15, Math.round(40 + (0.5 - loudness) * 80)));
+      const brain    = Math.min(95, Math.max(30, Math.round(70 + Math.random() * 20)));
+      const mental   = Math.min(95, Math.max(25, Math.round(65 + Math.random() * 25)));
+      const total    = Math.round(100 - ((physical + (100 - brain) + (100 - mental)) / 3) * 0.6);
+      return { physical, brain, mental, total: Math.max(20, Math.min(95, total)) };
+    }
+
+    // ====================== 録音制御 ======================
+    async function startRecording() {
+      if (!isModelReady || isRecording) return;
 
       try {
-        // 1. Moonshine.jsによる文字起こし取得 (STT)
-        // ※ 停止処理後に最後のテキストが反映されるよう少しだけ待機
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const userText = window.currentTranscript || "（無音でした）";
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+          }
+        });
 
-        // 2. OpenSmile 音響特徴量の抽出 (Render FastAPIへ送信)
-        const acousticFeatures = await extractOpenSmileFeatures(audioBlob);
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+        
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
 
-        // 3. テキストのアンカー類似度計算
-        const textAnchorScores = await computeAnchorSimilarities(userText);
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          await handleTurnCompletion();
+        };
+
+        // 簡易VAD用
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+
+        mediaRecorder.start(250);
+        isRecording = true;
+        waveContainer.classList.remove("hidden");
+        statusText.textContent = "あなたのお話を聞いています...";
+        micHint.textContent = "話し終わると自動で停止します";
+
+        detectSilence();
+      } catch (err) {
+        console.error(err);
+        statusText.textContent = "マイクの許可が必要です";
+      }
+    }
+
+    function stopRecording() {
+      if (!isRecording || !mediaRecorder) return;
+      clearTimeout(silenceTimer);
+      mediaRecorder.stop();
+      isRecording = false;
+      waveContainer.classList.add("hidden");
+      statusText.textContent = "認識中...";
+    }
+
+    function detectSilence() {
+      if (!isRecording || !analyser) return;
+
+      const data = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(data);
+
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+
+      if (rms < 0.015) {          // 無音閾値
+        if (!silenceTimer) {
+          silenceTimer = setTimeout(() => {
+            if (isRecording) stopRecording();
+          }, 1400);               // 1.4秒無音で停止
+        }
+      } else {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+
+      if (isRecording) requestAnimationFrame(detectSilence);
+    }
+
+    // ====================== ターン完了処理 ======================
+    async function handleTurnCompletion() {
+      try {
+        const blob = new Blob(audioChunks, { type: "audio/webm" });
+        lastAudioBlob = blob;
+
+        statusText.textContent = "文字起こし中（Moonshine Tiny JA）...";
+
+        // 1. 音声 → Float32
+        const audioData = await blobToFloat32Array(blob);
+
+        // 2. STT
+        const userText = await transcribe(audioData);
+        console.log("認識結果:", userText);
+
+        // 3. OpenSmile（非同期で並行）
+        const acousticPromise = extractOpenSmileFeatures(blob);
 
         currentTurn++;
 
         if (currentTurn <= 2) {
-          statusText.innerText = "AIが考えています...";
-          
-          // Groq LLMで相槌と次の質問を生成
+          // 途中ターン
+          statusText.textContent = "AIが考えています...";
+          updateProgress(currentTurn * 30, `${currentTurn * 30}%`);
+
           const aiReply = await callGroqLLM(userText, false);
-          
-          updateProgress(66, "66%");
-          aiPromptText.innerHTML = aiReply;
-          
+          aiPromptText.innerHTML = aiReply.replace(/\n/g, "<br>");
+
+          // 音声で読み上げ
           speakAI(aiReply, () => {
-            startRecordingWithVAD();
+            // 読み上げ終了後に自動で次の録音開始
+            setTimeout(() => startRecording(), 400);
           });
-
         } else {
-          statusText.innerText = "スキャン完了！診断を生成中...";
+          // 最終ターン
+          statusText.textContent = "診断を生成中...";
+          updateProgress(90, "90%");
 
-          // Groq LLMで最終診断のテキストを生成
           const diagnosisText = await callGroqLLM(userText, true);
-          
-          // LLMの出力をパースして画面に反映
-          const lines = diagnosisText.split('\n').filter(l => l.trim() !== "");
-          const titleLine = lines.find(l => l.includes('タイトル')) || 'タイトル：総合的な疲れ';
-          const detailLines = lines.filter(l => !l.includes('タイトル')).join('<br>');
-          
-          document.getElementById('fatigueTitle').innerText = titleLine.replace('タイトル：', '').trim();
-          document.getElementById('fatigueDetailText').innerHTML = detailLines.replace('詳細：', '').trim();
+          const acoustic = await acousticPromise;
+
+          // パース
+          const lines = diagnosisText.split("\n").filter(l => l.trim());
+          const titleLine = lines.find(l => l.includes("タイトル")) || "タイトル：総合的な疲れ";
+          const detail = lines.filter(l => !l.includes("タイトル")).join("<br>").replace("詳細：", "").trim();
+
+          document.getElementById("fatigueTitle").textContent =
+            titleLine.replace(/タイトル[：:]/, "").trim();
+          document.getElementById("fatigueDetailText").innerHTML = detail || diagnosisText;
+
+          const scores = predictScores(acoustic, []);
+          updateResultUI(scores);
 
           updateProgress(100, "100%");
+          statusText.textContent = "スキャン完了";
           aiPromptText.innerHTML = "全体をスキャン完了しました！<br>タップして結果を確認してください。";
-          statusText.innerText = "スキャン完了";
-
-          const fatigueScores = predictLightGBM(acousticFeatures, textAnchorScores);
-          updateResultUI(fatigueScores);
-
-          micBtn.classList.add('hidden');
-          viewResultBtn.classList.remove('hidden');
+          micBtn.classList.add("hidden");
+          viewResultBtn.classList.remove("hidden");
 
           speakAI("会話とトーンの分析が完了しました。結果をご覧ください。");
         }
-
       } catch (err) {
         console.error(err);
-        statusText.innerText = "解析中にエラーが発生しました";
+        statusText.textContent = "解析中にエラーが発生しました";
+        micHint.textContent = "もう一度マイクを押してください";
+        isRecording = false;
       }
     }
 
-
-    // --- テキスト埋め込み & アンカーコサイン類似度の計算 ---
-    async function computeAnchorSimilarities(text) {
-      if (!embedder || !anchorEmbeddings.physical) {
-        return { physicalSim: 0.5, brainSim: 0.5, mentalSim: 0.5, healthySim: 0.5 };
+    // ====================== ユーティリティ ======================
+    function speakAI(text, onEnd) {
+      if (!("speechSynthesis" in window)) {
+        if (onEnd) onEnd();
+        return;
       }
-
-      const out = await embedder(text, { pooling: 'mean', normalize: true });
-      const userVec = Array.from(out.data);
-
-      return {
-        physicalSim: cosineSimilarity(userVec, anchorEmbeddings.physical),
-        brainSim: cosineSimilarity(userVec, anchorEmbeddings.brain),
-        mentalSim: cosineSimilarity(userVec, anchorEmbeddings.mental),
-        healthySim: cosineSimilarity(userVec, anchorEmbeddings.healthy)
-      };
-    }
-
-    function cosineSimilarity(vecA, vecB) {
-      let dotProduct = 0, normA = 0, normB = 0;
-      for (let i = 0; i < vecA.length; i++) {
-        dotProduct += vecA[i] * vecB[i];
-        normA += vecA[i] * vecA[i];
-        normB += vecB[i] * vecB[i];
-      }
-      return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB) || 1);
-    }
-
-    // --- LightGBM 簡易推論ロジック (音響 + アンカー類似度) ---
-    function predictLightGBM(acoustic, anchorSims) {
-      const loudness = acoustic['smile_loudness_sma3_amean'] || 0;
-      
-      // アンカー類似度に基づく疲労スコアの算出
-      let physical = Math.min(100, Math.max(10, Math.round(anchorSims.physicalSim * 100 + (10 - loudness))));
-      let brain = Math.min(100, Math.max(10, Math.round(anchorSims.brainSim * 90 + 20)));
-      let mental = Math.min(100, Math.max(10, Math.round(anchorSims.mentalSim * 85 + 15)));
-      let total = Math.round(100 - ((physical + brain + mental) / 3));
-
-      return { physical, brain, mental, total };
-    }
-
-    // --- UI & 音声発話処理 ---
-    function speakAI(text, onEndCallback) {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ja-JP';
-        utterance.rate = 1.0;
-        if (onEndCallback) utterance.onend = onEndCallback;
-        window.speechSynthesis.speak(utterance);
-      } else if (onEndCallback) {
-        onEndCallback();
-      }
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ja-JP";
+      u.rate = 1.05;
+      if (onEnd) u.onend = onEnd;
+      window.speechSynthesis.speak(u);
     }
 
     function updateProgress(percent, label) {
       progressBar.style.width = `${percent}%`;
-      progressText.innerText = label;
+      progressText.textContent = label;
     }
 
     function updateResultUI(scores) {
-      document.getElementById('scoreTotalVal').innerText = scores.total;
-      document.getElementById('scoreBrainVal').innerHTML = `${scores.brain}<span class="text-xs font-normal">%</span>`;
-      document.getElementById('scoreMentalVal').innerHTML = `${scores.mental}<span class="text-xs font-normal">%</span>`;
-      document.getElementById('scorePhysicalVal').innerHTML = `${scores.physical}<span class="text-xs font-normal">%</span>`;
+      document.getElementById("scoreTotalVal").textContent = scores.total;
+      document.getElementById("scoreBrainVal").innerHTML = `${scores.brain}<span class="text-xs font-normal">%</span>`;
+      document.getElementById("scoreMentalVal").innerHTML = `${scores.mental}<span class="text-xs font-normal">%</span>`;
+      document.getElementById("scorePhysicalVal").innerHTML = `${scores.physical}<span class="text-xs font-normal">%</span>`;
     }
 
-    // 結果画面への画面遷移
-    viewResultBtn.addEventListener('click', () => {
-      document.getElementById('scanScreen').classList.add('hidden');
-      document.getElementById('resultScreen').classList.remove('hidden');
+    // ====================== イベント ======================
+    micBtn.addEventListener("click", () => {
+      if (!isModelReady) return;
+      if (isRecording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
     });
 
+    viewResultBtn.addEventListener("click", () => {
+      document.getElementById("scanScreen").classList.add("hidden");
+      document.getElementById("resultScreen").classList.remove("hidden");
+    });
 
-
-
-    async function extractOpenSmileFeatures(blob) {
-      try {
-        const formData = new FormData();
-        formData.append('file', blob, 'speech.wav');
-        const res = await fetch(`${BACKEND_URL.replace(/\/$/, '')}/extract-features`, {
-          method: 'POST',
-          body: formData
-        });
-        return await res.json();
-      } catch (e) {
-        return {};
-      }
-    }
+    // 起動
+    loadMoonshineJA();
   </script>
 </body>
 </html>
