@@ -1,0 +1,29 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main ] # メインブランチにプッシュしたときに実行
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inject Environment Variables
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          BACKEND_URL: ${{ secrets.BACKEND_URL }} # RenderのURLをSecretにする場合
+        run: |
+          # index.html 内のプレースホルダーを実際のSecretの値に置換
+          sed -i 's|__GROQ_API_KEY_PLACEHOLDER__|'"$GROQ_API_KEY"'|g' index.html
+          # ※ BACKEND_URLを固定したい場合はRenderのURLをSecretに入れておく。
+          # もしくは直接文字列としてスクリプト内に書いても動きます。
+          sed -i 's|__BACKEND_URL_PLACEHOLDER__|https://voicechat-gz4j.onrender.com|g' index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
