@@ -2,26 +2,31 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>自分スキャン - AI疲労診断</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Material Icons -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", sans-serif; }
     .bg-app-gradient {
       background: linear-gradient(165deg, #FDE8E1 0%, #FDF3EE 45%, #E8EEFB 100%);
     }
     .wave-dot {
-      width: 8px; height: 8px; border-radius: 9999px; background: #34D399;
-      animation: bounce 1.2s infinite ease-in-out;
+      width: 7px; height: 7px; border-radius: 9999px; background: #34D399;
+      animation: bounce 1.15s infinite ease-in-out;
     }
-    .wave-dot:nth-child(2) { animation-delay: 0.15s; }
-    .wave-dot:nth-child(3) { animation-delay: 0.3s; }
-    .wave-dot:nth-child(4) { animation-delay: 0.45s; }
-    .wave-dot:nth-child(5) { animation-delay: 0.6s; }
+    .wave-dot:nth-child(2) { animation-delay: 0.12s; }
+    .wave-dot:nth-child(3) { animation-delay: 0.24s; }
+    .wave-dot:nth-child(4) { animation-delay: 0.36s; }
+    .wave-dot:nth-child(5) { animation-delay: 0.48s; }
     @keyframes bounce {
-      0%, 100% { transform: translateY(0); opacity: 0.5; }
-      50% { transform: translateY(-8px); opacity: 1; }
+      0%, 100% { transform: translateY(0); opacity: 0.45; }
+      50% { transform: translateY(-7px); opacity: 1; }
     }
+    .material-icons { font-size: 22px; vertical-align: middle; }
+    .mic-icon { font-size: 32px !important; color: #ef4444; }
+    .stop-icon { font-size: 28px !important; color: #ef4444; }
   </style>
 </head>
 <body class="bg-slate-200 flex justify-center items-center min-h-screen">
@@ -32,56 +37,54 @@
     <div id="scanScreen" class="flex-1 flex flex-col p-5 relative">
 
       <!-- Header -->
-      <div class="pt-2">
+      <div class="pt-1">
         <div class="flex items-center justify-between mb-3">
-          <button class="w-9 h-9 rounded-full bg-white/70 flex items-center justify-center text-slate-500 text-lg shadow-sm">‹</button>
+          <button class="w-9 h-9 rounded-full bg-white/70 flex items-center justify-center text-slate-500 shadow-sm">
+            <span class="material-icons" style="font-size:20px">chevron_left</span>
+          </button>
           <h1 class="text-slate-700 font-bold text-sm tracking-wide">自分スキャン</h1>
           <div class="w-9"></div>
         </div>
 
-        <!-- Progress -->
         <div class="space-y-1.5 px-1">
           <div class="flex justify-between text-[11px] text-slate-500 font-medium">
             <span>スキャン進行度</span>
             <span id="progressText">0%</span>
           </div>
           <div class="w-full bg-white/60 rounded-full h-2 overflow-hidden border border-white/70">
-            <div id="progressBar" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+            <div id="progressBar" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width:0%"></div>
           </div>
         </div>
       </div>
 
-      <!-- Center Content -->
+      <!-- Center -->
       <div class="flex-1 flex flex-col justify-center items-center text-center px-3 space-y-5">
         <div id="statusBadge" class="inline-flex items-center gap-2 bg-white/85 backdrop-blur px-4 py-1.5 rounded-full text-xs text-slate-600 shadow-sm">
           <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
           <span id="statusText">モデルを準備中...</span>
         </div>
 
-        <h2 id="aiPromptText" class="text-[19px] font-bold text-slate-800 leading-relaxed max-w-[280px] transition-opacity duration-300">
+        <h2 id="aiPromptText" class="text-[18px] font-bold text-slate-800 leading-relaxed max-w-[290px]">
           準備ができたら<br>下のボタンを押してください
         </h2>
 
-        <!-- Wave indicator (recording) -->
-        <div id="waveContainer" class="flex items-center gap-1.5 h-6 hidden">
-          <div class="wave-dot"></div>
-          <div class="wave-dot"></div>
-          <div class="wave-dot"></div>
-          <div class="wave-dot"></div>
+        <div id="waveContainer" class="flex items-center gap-1.5 h-5 hidden">
+          <div class="wave-dot"></div><div class="wave-dot"></div>
+          <div class="wave-dot"></div><div class="wave-dot"></div>
           <div class="wave-dot"></div>
         </div>
       </div>
 
-      <!-- Bottom Controls -->
-      <div class="flex flex-col items-center pb-4 space-y-3">
+      <!-- Controls -->
+      <div class="flex flex-col items-center pb-3 space-y-3">
         <button id="micBtn" disabled
-          class="w-[76px] h-[76px] rounded-full bg-white border-[5px] border-red-400 flex items-center justify-center shadow-lg transition-all active:scale-95 opacity-50">
-          <div id="micInnerIcon" class="w-7 h-7 bg-red-500 rounded-full transition-all"></div>
+          class="w-[78px] h-[78px] rounded-full bg-white border-[5px] border-red-400 flex items-center justify-center shadow-lg transition-all active:scale-95 opacity-50">
+          <span id="micInnerIcon" class="material-icons mic-icon">mic</span>
         </button>
         <p id="micHint" class="text-xs text-slate-400">モデル読み込み中...</p>
 
-        <button id="viewResultBtn" class="hidden w-full py-3.5 bg-orange-400 hover:bg-orange-500 text-white font-bold rounded-2xl shadow-md transition-all">
-          ✨ スキャン完了！結果を見る
+        <button id="viewResultBtn" class="hidden w-full py-3.5 bg-orange-400 hover:bg-orange-500 text-white font-bold rounded-2xl shadow-md">
+          スキャン完了！結果を見る
         </button>
       </div>
     </div>
@@ -92,63 +95,61 @@
         <h2 class="text-slate-700 font-bold text-base">診断結果</h2>
       </div>
 
-      <!-- Score Card -->
       <div class="bg-white rounded-3xl p-5 shadow-sm border border-orange-100/60 text-center space-y-1.5">
         <p class="text-[10px] font-bold text-slate-400 tracking-widest">TODAY'S WELL-BEING</p>
         <div class="flex justify-center items-baseline gap-0.5">
           <span id="scoreTotalVal" class="text-5xl font-black text-emerald-500">--</span>
           <span class="text-base font-bold text-slate-400">/100</span>
         </div>
-        <div class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full text-[11px] font-bold">
-          📈 前回より +4pt
-        </div>
       </div>
 
-      <!-- Condition -->
       <div class="space-y-2">
         <h3 class="text-[11px] font-bold text-slate-600 px-1">コンディション解析</h3>
         <div class="grid grid-cols-3 gap-2.5">
           <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
             <div id="scoreBrainVal" class="text-xl font-black text-slate-700">--<span class="text-xs font-normal">%</span></div>
-            <div class="text-[10px] text-slate-400 font-medium mt-0.5">🧠 脳</div>
+            <div class="text-[10px] text-slate-400 font-medium mt-0.5">脳</div>
           </div>
           <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
             <div id="scoreMentalVal" class="text-xl font-black text-slate-700">--<span class="text-xs font-normal">%</span></div>
-            <div class="text-[10px] text-slate-400 font-medium mt-0.5">🌱 精神</div>
+            <div class="text-[10px] text-slate-400 font-medium mt-0.5">精神</div>
           </div>
           <div class="bg-white rounded-2xl p-3 shadow-sm text-center border border-slate-100">
             <div id="scorePhysicalVal" class="text-xl font-black text-orange-500">--<span class="text-xs font-normal">%</span></div>
-            <div class="text-[10px] text-slate-400 font-medium mt-0.5">🏃 身体</div>
+            <div class="text-[10px] text-slate-400 font-medium mt-0.5">身体</div>
           </div>
         </div>
       </div>
 
-      <!-- Diagnosis -->
       <div class="bg-white rounded-3xl p-4 shadow-sm border border-orange-100 space-y-2.5">
         <div class="flex items-center gap-1.5 text-[11px] font-bold text-orange-500">
-          <span>⚠️ 身体的疲労のサインを検知</span>
+          <span class="material-icons" style="font-size:16px;color:#f97316">warning</span>
+          <span>分析結果</span>
         </div>
         <div class="bg-orange-50/70 rounded-2xl p-3 border border-orange-100 text-center">
-          <p class="text-[10px] text-orange-400 font-medium">＼ 一言で表すと、今のあなたは… ／</p>
+          <p class="text-[10px] text-orange-400 font-medium">一言で表すと、今のあなたは…</p>
           <p id="fatigueTitle" class="text-sm font-bold text-orange-600 mt-0.5">分析中...</p>
         </div>
         <p id="fatigueDetailText" class="text-xs text-slate-500 leading-relaxed"></p>
       </div>
 
-      <!-- Recovery (simple) -->
       <div class="space-y-2">
-        <h3 class="text-[11px] font-bold text-slate-600 px-1">♡ リカバリープログラム</h3>
+        <h3 class="text-[11px] font-bold text-slate-600 px-1">リカバリープログラム</h3>
         <div class="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 flex items-center gap-3">
-          <div class="w-14 h-14 rounded-xl bg-orange-100 flex items-center justify-center text-2xl">🧘</div>
+          <div class="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center">
+            <span class="material-icons" style="color:#ea580c">self_improvement</span>
+          </div>
           <div>
-            <p class="text-xs font-bold text-slate-700">#ストレッチ</p>
+            <p class="text-xs font-bold text-slate-700">ストレッチ</p>
             <p class="text-[11px] text-slate-400">座ったまできる肩こり解消</p>
           </div>
         </div>
         <div class="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 flex items-center gap-3">
-          <div class="w-14 h-14 rounded-xl bg-sky-100 flex items-center justify-center text-2xl">🛁</div>
+          <div class="w-12 h-12 rounded-xl bg-sky-100 flex items-center justify-center">
+            <span class="material-icons" style="color:#0284c7">hot_tub</span>
+          </div>
           <div>
-            <p class="text-xs font-bold text-slate-700">#温活</p>
+            <p class="text-xs font-bold text-slate-700">温活</p>
             <p class="text-[11px] text-slate-400">身体の芯から温める入浴法</p>
           </div>
         </div>
@@ -160,12 +161,22 @@
     </div>
 
     <!-- Bottom Nav -->
-    <div class="bg-white/85 backdrop-blur border-t border-slate-100 py-2.5 px-5 flex justify-between items-center text-slate-400">
-      <div class="flex flex-col items-center text-[10px] space-y-0.5"><span class="text-base">🏠</span><span>ホーム</span></div>
-      <div class="flex flex-col items-center text-[10px] space-y-0.5"><span class="text-base">📖</span><span>知る</span></div>
-      <div class="flex flex-col items-center text-[10px] text-orange-400 font-bold space-y-0.5"><span class="text-base">🌊</span><span>スキャン</span></div>
-      <div class="flex flex-col items-center text-[10px] space-y-0.5"><span class="text-base">🤍</span><span>ケア</span></div>
-      <div class="flex flex-col items-center text-[10px] space-y-0.5"><span class="text-base">👤</span><span>私</span></div>
+    <div class="bg-white/85 backdrop-blur border-t border-slate-100 py-2.5 px-4 flex justify-between items-center text-slate-400">
+      <div class="flex flex-col items-center text-[10px] space-y-0.5">
+        <span class="material-icons" style="font-size:20px">home</span><span>ホーム</span>
+      </div>
+      <div class="flex flex-col items-center text-[10px] space-y-0.5">
+        <span class="material-icons" style="font-size:20px">menu_book</span><span>知る</span>
+      </div>
+      <div class="flex flex-col items-center text-[10px] text-orange-400 font-bold space-y-0.5">
+        <span class="material-icons" style="font-size:20px;color:#fb923c">waves</span><span>スキャン</span>
+      </div>
+      <div class="flex flex-col items-center text-[10px] space-y-0.5">
+        <span class="material-icons" style="font-size:20px">favorite_border</span><span>ケア</span>
+      </div>
+      <div class="flex flex-col items-center text-[10px] space-y-0.5">
+        <span class="material-icons" style="font-size:20px">person_outline</span><span>私</span>
+      </div>
     </div>
   </div>
 
@@ -183,15 +194,22 @@
     let audioContext = null;
     let analyser = null;
     let silenceStart = null;
-    let currentTurn = 0;
+    let currentTurn = 0; // 0→1→2 で終了
+    let allUserTexts = [];
+    let lastAcoustic = {};
 
     const SILENCE_THRESHOLD = 0.013;
     const SILENCE_MS = 1600;
 
-    const chatHistory = [{
-      role: "system",
-      content: "あなたはユーザーの今日の出来事を聞き出し、心身の疲労状態を分析する優しいAIアシスタント「自分スキャン」です。返答は親身な相槌と次の質問を1つだけ。必ず50文字程度で短く簡潔に。"
-    }];
+    // 会話用の固定プロンプト（3ターン専用）
+    const TURN_PROMPTS = [
+      // ターン1: 出来事・調子を尋ねる
+      "あなたは優しいAIアシスタントです。ユーザーの今日の出来事や体調・気分を優しく尋ねてください。返答は40文字以内で短く。質問は1つだけ。",
+      // ターン2: 共感＋深掘り
+      "ユーザーの話に共感しつつ、もう少し詳しく聞きたいポイントを1つだけ優しく尋ねてください。返答は50文字以内。",
+      // ターン3: まとめ＋ありがとう
+      "これまでの話を短くまとめ、「話してくれてありがとう」と伝えてください。診断には触れないでください。40文字以内。"
+    ];
 
     // DOM
     const statusText    = document.getElementById("statusText");
@@ -204,20 +222,20 @@
     const waveContainer = document.getElementById("waveContainer");
     const viewResultBtn = document.getElementById("viewResultBtn");
 
-    // ===================== マイクボタン見た目 =====================
+    // ===================== マイクUI =====================
     function setMicUI(recording) {
       if (recording) {
-        micInnerIcon.className = "w-6 h-6 bg-red-500 rounded-sm transition-all";
+        micInnerIcon.textContent = "stop";
+        micInnerIcon.className = "material-icons stop-icon";
         micHint.textContent = "タップして停止";
-        micBtn.classList.add("scale-105");
       } else {
-        micInnerIcon.className = "w-7 h-7 bg-red-500 rounded-full transition-all";
+        micInnerIcon.textContent = "mic";
+        micInnerIcon.className = "material-icons mic-icon";
         micHint.textContent = "タップして話す";
-        micBtn.classList.remove("scale-105");
       }
     }
 
-    // ===================== モデル読み込み =====================
+    // ===================== モデル =====================
     async function loadModel() {
       try {
         statusText.textContent = "Moonshine Tiny JA 読み込み中...";
@@ -235,11 +253,11 @@
 
         isModelReady = true;
         statusText.textContent = "準備完了";
-        aiPromptText.innerHTML = "こんにちは！<br>今日はどんな一日でしたか？";
+        aiPromptText.innerHTML = "こんにちは！<br>今日の調子はどうですか？";
         micBtn.disabled = false;
         micBtn.classList.remove("opacity-50");
         setMicUI(false);
-        updateProgress(8, "8%");
+        updateProgress(5, "5%");
       } catch (e) {
         console.error(e);
         statusText.textContent = "モデル読み込み失敗";
@@ -247,13 +265,12 @@
       }
     }
 
-    // ===================== 音声変換 =====================
+    // ===================== 音声 → 16kHz =====================
     async function blobToFloat32(blob) {
       const ab = await blob.arrayBuffer();
       const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       const buf = await ctx.decodeAudioData(ab);
       let data = buf.getChannelData(0);
-
       if (buf.sampleRate !== 16000) {
         const offline = new OfflineAudioContext(1, Math.ceil(buf.duration * 16000), 16000);
         const src = offline.createBufferSource();
@@ -273,24 +290,15 @@
       return tokenizer.decode(outputs[0], { skip_special_tokens: true }).trim() || "（聞き取れませんでした）";
     }
 
-    // ===================== LLM =====================
-    async function callLLM(userText, isFinal = false) {
-      if (!isFinal) chatHistory.push({ role: "user", content: userText });
-
-      const messages = isFinal
-        ? [...chatHistory, { role: "system", content: "これまでの会話から疲労タイプを推測し、次の形式で出力せよ。\nタイトル：〇〇の疲れ\n詳細：(3〜4行)" }]
-        : chatHistory;
-
+    // ===================== LLM呼び出し =====================
+    async function callLLM(messages) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages }),
       });
       const data = await res.json();
-      const text = data.text || data.choices?.[0]?.message?.content || "応答なし";
-
-      if (!isFinal) chatHistory.push({ role: "assistant", content: text });
-      return text;
+      return data.text || data.choices?.[0]?.message?.content || "応答を取得できませんでした";
     }
 
     // ===================== OpenSmile =====================
@@ -303,31 +311,19 @@
       } catch { return {}; }
     }
 
-    // ===================== スコア =====================
-    function calcScores(acoustic) {
-      const loud = acoustic["loudness_sma3_amean"] || acoustic["smile_loudness_sma3_amean"] || 0.35;
-      const physical = Math.min(92, Math.max(18, Math.round(45 + (0.45 - loud) * 90)));
-      const brain = Math.min(95, Math.max(40, 72 + Math.floor(Math.random() * 18)));
-      const mental = Math.min(95, Math.max(35, 68 + Math.floor(Math.random() * 20)));
-      const total = Math.max(28, Math.min(92, Math.round(100 - (physical * 0.35 + (100 - brain) * 0.3 + (100 - mental) * 0.35) / 1.2)));
-      return { physical, brain, mental, total };
-    }
-
     // ===================== 録音 =====================
     async function startRecording() {
       if (!isModelReady || isRecording) return;
-
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
         });
-
         audioChunks = [];
         mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
         mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
         mediaRecorder.onstop = async () => {
           stream.getTracks().forEach(t => t.stop());
-          if (audioContext) { audioContext.close(); audioContext = null; }
+          if (audioContext) { try { audioContext.close(); } catch {} audioContext = null; }
           await processTurn();
         };
 
@@ -361,7 +357,6 @@
 
     function detectSilence() {
       if (!isRecording || !analyser) return;
-
       const data = new Uint8Array(analyser.fftSize);
       analyser.getByteTimeDomainData(data);
       let sum = 0;
@@ -370,7 +365,6 @@
         sum += v * v;
       }
       const rms = Math.sqrt(sum / data.length);
-
       if (rms < SILENCE_THRESHOLD) {
         if (!silenceStart) silenceStart = Date.now();
         else if (Date.now() - silenceStart > SILENCE_MS) {
@@ -392,36 +386,72 @@
         const float32 = await blobToFloat32(blob);
         const userText = await transcribe(float32);
         console.log("認識:", userText);
+        allUserTexts.push(userText);
 
         const acousticP = getAcoustic(blob);
         currentTurn++;
 
         if (currentTurn <= 2) {
+          // 途中ターン（① or ②）
           statusText.textContent = "AIが考えています...";
-          updateProgress(currentTurn * 28, `${currentTurn * 28}%`);
+          updateProgress(currentTurn * 30, `${currentTurn * 30}%`);
 
-          const reply = await callLLM(userText, false);
+          const messages = [
+            { role: "system", content: TURN_PROMPTS[currentTurn - 1] },
+            { role: "user", content: userText }
+          ];
+          const reply = await callLLM(messages);
           aiPromptText.innerHTML = reply.replace(/\n/g, "<br>");
 
           speakAI(reply, () => {
-            setTimeout(() => startRecording(), 500);
+            setTimeout(() => startRecording(), 600);
           });
         } else {
+          // 最終ターン（③）＋診断生成
           statusText.textContent = "診断を生成中...";
-          updateProgress(85, "85%");
+          updateProgress(80, "80%");
 
-          const diagnosis = await callLLM(userText, true);
-          const acoustic = await acousticP;
+          // まず③のまとめ発話
+          const summaryMessages = [
+            { role: "system", content: TURN_PROMPTS[2] },
+            { role: "user", content: allUserTexts.join(" / ") }
+          ];
+          const summary = await callLLM(summaryMessages);
+          aiPromptText.innerHTML = summary.replace(/\n/g, "<br>");
 
+          // OpenSmile結果を待つ
+          lastAcoustic = await acousticP;
+
+          // 診断用プロンプト（OpenSmile + 文字起こし）
+          const featureSummary = summarizeAcoustic(lastAcoustic);
+          const diagnosisMessages = [
+            {
+              role: "system",
+              content: `あなたは音声疲労分析の専門家です。
+以下の音響特徴量の要約とユーザーの発言から、疲労状態を分析してください。
+必ず次の形式で出力してください（余計な前置き禁止）：
+タイトル：〇〇型の疲れ
+詳細：3文程度で具体的な分析と優しいアドバイス`
+            },
+            {
+              role: "user",
+              content: `【音響特徴】\n${featureSummary}\n\n【ユーザーの発言】\n${allUserTexts.join("\n")}`
+            }
+          ];
+
+          const diagnosis = await callLLM(diagnosisMessages);
+
+          // パース
           const lines = diagnosis.split("\n").filter(l => l.trim());
-          const title = (lines.find(l => l.includes("タイトル")) || "タイトル：総合的な疲れ")
-            .replace(/タイトル[：:]/, "").trim();
-          const detail = lines.filter(l => !l.includes("タイトル")).join("<br>").replace(/詳細[：:]/, "").trim();
+          const titleLine = lines.find(l => l.includes("タイトル")) || "タイトル：総合的な疲れ";
+          const detail = lines.filter(l => !l.includes("タイトル")).join(" ").replace(/詳細[：:]/, "").trim();
 
-          document.getElementById("fatigueTitle").textContent = title;
-          document.getElementById("fatigueDetailText").innerHTML = detail || diagnosis;
+          document.getElementById("fatigueTitle").textContent =
+            titleLine.replace(/タイトル[：:]/, "").trim();
+          document.getElementById("fatigueDetailText").textContent = detail || diagnosis;
 
-          const scores = calcScores(acoustic);
+          // 簡易スコア（後でLightGBMに置き換え）
+          const scores = heuristicScores(lastAcoustic);
           document.getElementById("scoreTotalVal").textContent = scores.total;
           document.getElementById("scoreBrainVal").innerHTML = `${scores.brain}<span class="text-xs font-normal">%</span>`;
           document.getElementById("scoreMentalVal").innerHTML = `${scores.mental}<span class="text-xs font-normal">%</span>`;
@@ -429,11 +459,10 @@
 
           updateProgress(100, "100%");
           statusText.textContent = "スキャン完了";
-          aiPromptText.innerHTML = "全体をスキャン完了しました！<br>結果を確認してください";
           micBtn.classList.add("hidden");
           viewResultBtn.classList.remove("hidden");
 
-          speakAI("分析が完了しました。結果をご覧ください。");
+          speakAI(summary + "。結果をご覧ください。");
         }
       } catch (e) {
         console.error(e);
@@ -443,35 +472,78 @@
       }
     }
 
+    // 音響特徴の要約（LLMに渡しやすく）
+    function summarizeAcoustic(f) {
+      if (!f || Object.keys(f).length === 0) return "特徴量取得失敗";
+      const keys = [
+        "loudness_sma3_amean", "F0semitoneFrom27.5Hz_sma3nz_amean",
+        "jitterLocal_sma3nz_amean", "shimmerLocaldB_sma3nz_amean",
+        "HNRdBACF_sma3nz_amean", "alphaRatioV_sma3nz_amean"
+      ];
+      const parts = [];
+      for (const k of keys) {
+        if (f[k] !== undefined) parts.push(`${k}: ${Number(f[k]).toFixed(3)}`);
+      }
+      // 代表的なものを少し多めに
+      const extras = Object.keys(f).filter(k => k.includes("loudness") || k.includes("F0") || k.includes("jitter")).slice(0, 8);
+      for (const k of extras) {
+        if (!parts.find(p => p.startsWith(k))) parts.push(`${k}: ${Number(f[k]).toFixed(3)}`);
+      }
+      return parts.join(", ") || "特徴量あり";
+    }
+
+    function heuristicScores(f) {
+      const loud = f["loudness_sma3_amean"] ?? f["smile_loudness_sma3_amean"] ?? 0.35;
+      const physical = Math.min(90, Math.max(20, Math.round(50 + (0.4 - loud) * 80)));
+      const brain = Math.min(92, Math.max(40, 70 + Math.floor(Math.random() * 15)));
+      const mental = Math.min(92, Math.max(35, 65 + Math.floor(Math.random() * 18)));
+      const total = Math.max(30, Math.min(90, Math.round((brain + mental + (100 - physical)) / 3)));
+      return { physical, brain, mental, total };
+    }
+
     // ===================== TTS（強化版） =====================
-    function speakAI(text, onEnd) {
+    let voicesReady = false;
+    function ensureVoices() {
+      return new Promise(resolve => {
+        const voices = speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          voicesReady = true;
+          resolve(voices);
+          return;
+        }
+        speechSynthesis.onvoiceschanged = () => {
+          voicesReady = true;
+          resolve(speechSynthesis.getVoices());
+        };
+        // タイムアウト保険
+        setTimeout(() => resolve(speechSynthesis.getVoices()), 1500);
+      });
+    }
+
+    async function speakAI(text, onEnd) {
       if (!window.speechSynthesis) {
         if (onEnd) onEnd();
         return;
       }
       speechSynthesis.cancel();
 
+      const voices = await ensureVoices();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "ja-JP";
-      u.rate = 1.08;
+      u.rate = 1.05;
       u.pitch = 1.0;
 
-      const voices = speechSynthesis.getVoices();
-      const best = voices.find(v =>
+      const preferred = voices.find(v =>
         v.lang.startsWith("ja") &&
         (v.name.includes("Google") || v.name.includes("Microsoft") ||
          v.name.includes("Kyoko") || v.name.includes("Otoya") ||
-         v.name.includes("Nanami") || v.name.includes("Haruka") ||
-         v.name.includes("女") || v.name.includes("Female"))
+         v.name.includes("Nanami") || v.name.includes("Haruka"))
       ) || voices.find(v => v.lang.startsWith("ja"));
 
-      if (best) u.voice = best;
-      if (onEnd) u.onend = onEnd;
+      if (preferred) u.voice = preferred;
+      u.onend = () => { if (onEnd) onEnd(); };
+      u.onerror = () => { if (onEnd) onEnd(); };
 
-      if (voices.length === 0) {
-        speechSynthesis.onvoiceschanged = () => speakAI(text, onEnd);
-        return;
-      }
       speechSynthesis.speak(u);
     }
 
@@ -493,9 +565,7 @@
     });
 
     // 起動
-    if (speechSynthesis.getVoices().length === 0) {
-      speechSynthesis.onvoiceschanged = () => {};
-    }
+    ensureVoices();
     loadModel();
   </script>
 </body>
