@@ -29,6 +29,11 @@
       50% { height: 24px; }
     }
   </style>
+    <script type="module">
+    import * as Moonshine from "https://cdn.jsdelivr.net/npm/@moonshine-ai/moonshine-js@latest/dist/moonshine.min.js";
+    window.Moonshine = Moonshine;
+  </script>
+
 </head>
 <body class="bg-slate-200 flex justify-center items-center min-h-screen">
 
@@ -181,71 +186,20 @@
     const BACKEND_URL = "https://voicechat-gz4j.onrender.com/";
 
     // --- アンカーテキスト（定義ベースの埋め込み比較用） ---
-    const ANCHOR_DEFINITIONS = {
-      physical: "筋肉の痛み 首コリ 肩こり 体が重い 疲労困憊 疲れた 動けない 睡眠不足 身体的限界",
-      brain: "頭が働かない 思考停止 集中できない 眼精疲労 脳がフリーズ 暗算できない ケアレスミス",
-      mental: "ストレス 落ち込む 気分が重い 不安 やる気が出ない イライラ 精神的にしんどい 落ち込み",
-      healthy: "元気 快適 すっきり 絶好調 身体が軽い 充実 リフレッシュ 集中できている 楽しい"
-    };
+        // --- AIとの会話履歴を保持する配列 ---
+    let chatHistory = [
+      { role: "system", content: "あなたはユーザーの今日の出来事を聞き出し、心身の疲労状態を分析する優しいAIアシスタント「自分スキャン」です。会話は音声で行われるため、返答は親身になって相槌を打ち、次の質問を1つだけ投げかけてください。返答は必ず50文字程度で短く簡潔にしてください。" }
+    ];
+    let moonshineRecognizer = null;
+    window.currentTranscript = "";
 
-    let anchorEmbeddings = {};
-    let currentTurn = 1; // 1, 2, 3
-    let mediaRecorder;
-    let audioChunks = [];
-    let isRecording = false;
-    let audioContext, analyser, microphone;
-    let silenceTimer = null;
-    let embedder = null;
-
-    // ユーザーの発話ターンごとの質問プロンプト
-    const TURN_PROMPTS = {
-      1: "こんにちは！<br>今日はどんな一日でしたか？",
-      2: "なるほど、そうだったんですね。<br>もう少し詳しく教えてもらえますか？",
-      3: "お話しいただきありがとうございます！<br>全体をまとめてスキャンを完了しますね。"
-    };
-
-    // 初期化: Transformers.js Embedder & Anchor Vectorsの計算
-    async function initEmbeddings() {
-      if (window.xenova) {
-        embedder = await window.xenova.transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-        
-        // 事前に各アンカー定義の埋め込みベクトルを計算
-        for (const [key, text] of Object.entries(ANCHOR_DEFINITIONS)) {
-          const out = await embedder(text, { pooling: 'mean', normalize: true });
-          anchorEmbeddings[key] = Array.from(out.data);
-        }
-      }
-    }
-    initEmbeddings();
-
-    const micBtn = document.getElementById('micBtn');
-    const statusText = document.getElementById('statusText');
-    const aiPromptText = document.getElementById('aiPromptText');
-    const progressBar = document.getElementById('progressBar');
-    const progressText = document.getElementById('progressText');
-    const viewResultBtn = document.getElementById('viewResultBtn');
-
-    // 初回発声（自動スタート）
-    window.addEventListener('load', () => {
-      speakAI(aiPromptText.innerText.replace('<br>', ' '), () => {
-        startRecordingWithVAD();
-      });
-    });
-
-    micBtn.addEventListener('click', () => {
-      if (isRecording) {
-        stopRecording();
-      } else {
-        startRecordingWithVAD();
-      }
-    });
-
-    // --- 自動無音検知（VAD）付き録音スタート ---
+    // ------------------------------------
+    // 録音＆STT（Moonshine.js）の開始
+    // ------------------------------------
     async function startRecordingWithVAD() {
       audioChunks = [];
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Web Audio API による音量監視
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
       analyser = audioContext.createAnalyser();
       microphone = audioContext.createMediaStreamSource(stream);
@@ -256,87 +210,118 @@
       mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
       mediaRecorder.onstop = handleTurnCompletion;
 
+      // ★ MoonshineJSの初期化とスタート
+      window.currentTranscript = "";
+      if (window.Moonshine && !moonshineRecognizer) {
+        moonshineRecognizer = new window.Moonshine.MoonshineSpeechRecognition();
+        moonshineRecognizer.continuous = true;
+        moonshineRecognizer.addEventListener("result", (e) => {
+          let temp = "";
+          for (let i = 0; i < e.results.length; ++i) {
+            temp += e.results[i][0].transcript;
+          }
+          window.currentTranscript = temp;
+        });
+      }
+      if (moonshineRecognizer) moonshineRecognizer.start();
+
       mediaRecorder.start();
       isRecording = true;
       document.getElementById('waveContainer').classList.remove('hidden');
       statusText.innerText = "あなたのお話を聞いています...";
-
-      // 無音の検出（1.8秒間一定音量以下の場合に自動停止）
       detectSilence();
-    }
-
-    function detectSilence() {
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      let silentStart = Date.now();
-
-      function checkVolume() {
-        if (!isRecording) return;
-        analyser.getByteFrequencyData(dataArray);
-        
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-        let average = sum / dataArray.length;
-
-        // 音量しきい値（会話が終了したと判定する音量レベル）
-        if (average < 12) {
-          if (Date.now() - silentStart > 1800) { // 1.8秒経過
-            stopRecording();
-            return;
-          }
-        } else {
-          silentStart = Date.now(); // 音声を検知したらタイマーリセット
-        }
-        requestAnimationFrame(checkVolume);
-      }
-      checkVolume();
     }
 
     function stopRecording() {
       if (isRecording && mediaRecorder) {
         mediaRecorder.stop();
+        if (moonshineRecognizer) moonshineRecognizer.stop(); // ★ STTも停止
         isRecording = false;
         document.getElementById('waveContainer').classList.add('hidden');
         statusText.innerText = "AIが分析中...";
       }
     }
 
-    // --- ターン完了時の処理パイプライン ---
+    // ------------------------------------
+    // LLM（Groq）呼び出しヘルパー関数
+    // ------------------------------------
+    async function callGroqLLM(userText, isFinal = false) {
+      if (!isFinal) {
+        chatHistory.push({ role: "user", content: userText });
+      }
+      
+      // 最終ターンの場合は専用のシステムプロンプトを差し込む
+      const messagesToSend = isFinal 
+        ? [...chatHistory, { role: "system", content: "これまでの会話からユーザーの疲労のタイプを推測し、以下の形式で出力してください。\nタイトル：〇〇の疲れ\n詳細：(3〜4行で具体的な分析理由)" }]
+        : chatHistory;
+
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: messagesToSend })
+      });
+      const data = await res.json();
+      
+      if (!isFinal) {
+        chatHistory.push({ role: "assistant", content: data.text });
+      }
+      return data.text;
+    }
+
+    // ------------------------------------
+    // ターン完了時の処理パイプライン
+    // ------------------------------------
     async function handleTurnCompletion() {
       const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
 
       try {
-        // 1. Groq Whisper による文字起こし
-        const userText = await callGroqWhisper(audioBlob);
+        // 1. Moonshine.jsによる文字起こし取得 (STT)
+        // ※ 停止処理後に最後のテキストが反映されるよう少しだけ待機
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const userText = window.currentTranscript || "（無音でした）";
 
-        // 2. OpenSmile 音響特徴量の抽出 (Render FastAPI)
+        // 2. OpenSmile 音響特徴量の抽出 (Render FastAPIへ送信)
         const acousticFeatures = await extractOpenSmileFeatures(audioBlob);
 
-        // 3. テキストのアンカー類似度計算（定義ベース特徴量）
+        // 3. テキストのアンカー類似度計算
         const textAnchorScores = await computeAnchorSimilarities(userText);
 
-        // ターン数のインクリメント
         currentTurn++;
 
         if (currentTurn <= 2) {
-          // 2ターン目への移行
-          updateProgress(66, "66%");
-          aiPromptText.innerHTML = TURN_PROMPTS[2];
+          statusText.innerText = "AIが考えています...";
           
-          speakAI(aiPromptText.innerText.replace('<br>', ' '), () => {
+          // Groq LLMで相槌と次の質問を生成
+          const aiReply = await callGroqLLM(userText, false);
+          
+          updateProgress(66, "66%");
+          aiPromptText.innerHTML = aiReply;
+          
+          speakAI(aiReply, () => {
             startRecordingWithVAD();
           });
 
         } else {
-          // 3ターン目（完了ターン）
+          statusText.innerText = "スキャン完了！診断を生成中...";
+
+          // Groq LLMで最終診断のテキストを生成
+          const diagnosisText = await callGroqLLM(userText, true);
+          
+          // LLMの出力をパースして画面に反映
+          const lines = diagnosisText.split('\n').filter(l => l.trim() !== "");
+          const titleLine = lines.find(l => l.includes('タイトル')) || 'タイトル：総合的な疲れ';
+          const detailLines = lines.filter(l => !l.includes('タイトル')).join('<br>');
+          
+          document.getElementById('fatigueTitle').innerText = titleLine.replace('タイトル：', '').trim();
+          document.getElementById('fatigueDetailText').innerHTML = detailLines.replace('詳細：', '').trim();
+
           updateProgress(100, "100%");
           aiPromptText.innerHTML = "全体をスキャン完了しました！<br>タップして結果を確認してください。";
           statusText.innerText = "スキャン完了";
 
-          // LightGBM推論実行 & 結果反映
           const fatigueScores = predictLightGBM(acousticFeatures, textAnchorScores);
           updateResultUI(fatigueScores);
 
-          // 結果確認ボタンを表示
           micBtn.classList.add('hidden');
           viewResultBtn.classList.remove('hidden');
 
@@ -348,6 +333,7 @@
         statusText.innerText = "解析中にエラーが発生しました";
       }
     }
+
 
     // --- テキスト埋め込み & アンカーコサイン類似度の計算 ---
     async function computeAnchorSimilarities(text) {
@@ -421,25 +407,7 @@
       document.getElementById('resultScreen').classList.remove('hidden');
     });
 
-    // --- API 呼び出しヘルパー ---
-        // 変更前：直接GroqのAPIを叩いていた部分
-    // 変更後：自前のVercel APIを叩くように変更
 
-    async function callGroqWhisper(blob) {
-      const formData = new FormData();
-      formData.append('file', blob, 'speech.wav');
-      formData.append('model', 'whisper-large-v3-turbo');
-      formData.append('language', 'ja');
-
-      // Vercelに作った自分のAPIエンドポイントを呼び出す
-      const res = await fetch('/api/transcribe', {
-        method: 'POST',
-        body: formData
-      });
-      
-      const data = await res.json();
-      return data.text || "";
-    }
 
 
     async function extractOpenSmileFeatures(blob) {
