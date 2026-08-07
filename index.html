@@ -178,8 +178,7 @@
 
   <script>
     // GitHub Actions経由で自動注入される設定
-    const BACKEND_URL = "__BACKEND_URL_PLACEHOLDER__";
-    const GROQ_API_KEY = "__GROQ_API_KEY_PLACEHOLDER__";
+    const BACKEND_URL = "https://voicechat-gz4j.onrender.com/";
 
     // --- アンカーテキスト（定義ベースの埋め込み比較用） ---
     const ANCHOR_DEFINITIONS = {
@@ -423,20 +422,25 @@
     });
 
     // --- API 呼び出しヘルパー ---
+        // 変更前：直接GroqのAPIを叩いていた部分
+    // 変更後：自前のVercel APIを叩くように変更
+
     async function callGroqWhisper(blob) {
       const formData = new FormData();
       formData.append('file', blob, 'speech.wav');
       formData.append('model', 'whisper-large-v3-turbo');
       formData.append('language', 'ja');
 
-      const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      // Vercelに作った自分のAPIエンドポイントを呼び出す
+      const res = await fetch('/api/transcribe', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: formData
       });
+      
       const data = await res.json();
       return data.text || "";
     }
+
 
     async function extractOpenSmileFeatures(blob) {
       try {
