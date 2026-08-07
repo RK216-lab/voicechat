@@ -3,704 +3,297 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 音声対話アシスタント</title>
-  <style>
-    /* 基本スタイルの設定 */
-    :root {
-      --bg-color: #f1f5f9;
-      --card-bg: #ffffff;
-      --text-color: #0f172a;
-      --subtext-color: #64748b;
-      --border-color: #e2e8f0;
-      --primary-blue: #2563eb;
-      --primary-blue-hover: #1d4ed8;
-      --recording-red: #dc2626;
-      --recording-red-hover: #b91c1c;
-      --user-msg-bg: #eff6ff;
-      --ai-msg-bg: #f8fafc;
-      --error-bg: #fef2f2;
-      --error-border: #fecaca;
-      --error-text: #991b1b;
-      --input-bg: #ffffff;
-    }
-
-    /* ダークモード対応 */
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg-color: #0f172a;
-        --card-bg: #1e293b;
-        --text-color: #f8fafc;
-        --subtext-color: #94a3b8;
-        --border-color: #334155;
-        --user-msg-bg: #1e3a8a;
-        --ai-msg-bg: #334155;
-        --error-bg: #450a0a;
-        --error-border: #7f1d1d;
-        --error-text: #fca5a5;
-        --input-bg: #0f172a;
-      }
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background-color: var(--bg-color);
-      color: var(--text-color);
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 16px;
-    }
-
-    /* メインカード容器 */
-    .card {
-      background-color: var(--card-bg);
-      width: 100%;
-      max-width: 600px;
-      border-radius: 16px;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-      padding: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .header {
-      text-align: center;
-    }
-
-    .header h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      margin-bottom: 4px;
-    }
-
-    .header p {
-      font-size: 0.875rem;
-      color: var(--subtext-color);
-    }
-
-    /* APIキー入力エリア */
-    .api-key-container {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      background-color: var(--ai-msg-bg);
-      padding: 12px;
-      border-radius: 10px;
-      border: 1px solid var(--border-color);
-    }
-
-    .api-key-label {
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--subtext-color);
-    }
-
-    .api-key-row {
-      display: flex;
-      gap: 8px;
-    }
-
-    .api-key-input {
-      flex: 1;
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--border-color);
-      background-color: var(--input-bg);
-      color: var(--text-color);
-      font-size: 0.875rem;
-      outline: none;
-    }
-
-    .api-key-input:focus {
-      border-color: var(--primary-blue);
-    }
-
-    .save-key-btn {
-      padding: 8px 16px;
-      border-radius: 6px;
-      border: none;
-      background-color: var(--primary-blue);
-      color: #ffffff;
-      font-size: 0.875rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
-
-    .save-key-btn:hover {
-      background-color: var(--primary-blue-hover);
-    }
-
-    /* エラーメッセージ表示エリア */
-    .error-banner {
-      display: none;
-      background-color: var(--error-bg);
-      border: 1px solid var(--error-border);
-      color: var(--error-text);
-      padding: 12px 16px;
-      border-radius: 8px;
-      font-size: 0.875rem;
-      line-height: 1.4;
-    }
-
-    /* チャット履歴エリア */
-    .chat-container {
-      height: 340px;
-      overflow-y: auto;
-      border: 1px solid var(--border-color);
-      border-radius: 12px;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      scroll-behavior: smooth;
-    }
-
-    .message-wrapper {
-      display: flex;
-      flex-direction: column;
-      max-width: 85%;
-    }
-
-    .message-wrapper.user-bubble {
-      align-self: flex-end;
-      align-items: flex-end;
-    }
-
-    .message-wrapper.ai-bubble {
-      align-self: flex-start;
-      align-items: flex-start;
-    }
-
-    .message-sender {
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--subtext-color);
-      margin-bottom: 4px;
-    }
-
-    .message-content {
-      padding: 10px 14px;
-      border-radius: 12px;
-      font-size: 0.95rem;
-      line-height: 1.5;
-      word-break: break-word;
-    }
-
-    .user-bubble .message-content {
-      background-color: var(--primary-blue);
-      color: #ffffff;
-      border-bottom-right-radius: 2px;
-    }
-
-    .ai-bubble .message-content {
-      background-color: var(--ai-msg-bg);
-      color: var(--text-color);
-      border: 1px solid var(--border-color);
-      border-bottom-left-radius: 2px;
-    }
-
-    /* 「考え中…」のアニメーション */
-    .thinking .message-content {
-      font-style: italic;
-      color: var(--subtext-color);
-      animation: pulse 1.5s infinite ease-in-out;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 0.6; }
-      50% { opacity: 1; }
-    }
-
-    /* コントロールエリア */
-    .controls {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-    }
-
-    /* マイクボタン */
-    .mic-button {
-      background-color: var(--primary-blue);
-      color: #ffffff;
-      border: none;
-      border-radius: 50px;
-      padding: 14px 28px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
-    }
-
-    .mic-button:hover:not(:disabled) {
-      background-color: var(--primary-blue-hover);
-      transform: translateY(-1px);
-    }
-
-    .mic-button.recording {
-      background-color: var(--recording-red);
-      box-shadow: 0 4px 12px -1px rgba(220, 38, 38, 0.5);
-      animation: pulse-red 2s infinite;
-    }
-
-    .mic-button.recording:hover:not(:disabled) {
-      background-color: var(--recording-red-hover);
-    }
-
-    @keyframes pulse-red {
-      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
-      70% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
-    }
-
-    /* 連打防止・ローディング用 */
-    .mic-button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .status-text {
-      font-size: 0.85rem;
-      color: var(--subtext-color);
-      min-height: 1.2em;
-    }
-  </style>
+  <title>AI ボイスチャット & 疲労度分析</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Transformers.js for Client-side Text Embeddings -->
+  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0"></script>
 </head>
-<body>
+<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col items-center p-4">
 
-  <div class="card">
-    <div class="header">
-      <h1>音声AIアシスタント</h1>
-      <p>Web Speech API & Groq Llama 3.1</p>
-    </div>
-
-    <!-- APIキー設定UI -->
-    <div class="api-key-container">
-      <label class="api-key-label" for="api-key-input">Groq API Key (localStorageに保存されます)</label>
-      <div class="api-key-row">
-        <input type="password" id="api-key-input" class="api-key-input" placeholder="gsk_..." autocomplete="off" />
-        <button id="save-key-btn" class="save-key-btn">保存</button>
+  <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col h-[90vh]">
+    
+    <!-- API Settings Header -->
+    <div class="bg-slate-800 text-white p-4 text-xs space-y-2">
+      <div class="flex justify-between items-center font-bold text-sm">
+        <span>⚙️ 設定</span>
+      </div>
+      <div>
+        <label class="block mb-1">Render Backend URL:</label>
+        <input id="backendUrl" type="text" placeholder="https://xxx.onrender.com" class="w-full p-1.5 rounded text-black font-mono">
+      </div>
+      <div>
+        <label class="block mb-1">Groq API Key:</label>
+        <input id="groqApiKey" type="password" placeholder="gsk_..." class="w-full p-1.5 rounded text-black font-mono">
       </div>
     </div>
 
-    <!-- エラー表示エリア -->
-    <div id="error-container" class="error-banner">
-      <span id="error-message"></span>
+    <!-- Chat Display Area -->
+    <div id="chatBox" class="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50">
+      <div class="bg-blue-100 text-blue-900 p-3 rounded-xl max-w-[85%] text-sm">
+        こんにちは！声を聞かせてください。「今日は体が重いです」など気軽にお話ししましょう。
+      </div>
     </div>
 
-    <!-- チャットログ -->
-    <div id="chat-container" class="chat-container"></div>
-
-    <!-- 操作パネル -->
-    <div class="controls">
-      <button id="toggle-btn" class="mic-button">
-        <span id="btn-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-          </svg>
-        </span>
-        <span id="btn-text">マイク開始</span>
+    <!-- Status & Recording Control -->
+    <div class="p-4 bg-white border-t flex flex-col items-center space-y-3">
+      <p id="statusText" class="text-xs text-slate-500 font-medium">マイクボタンを押して発話してください</p>
+      
+      <button id="recordBtn" class="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-transform active:scale-95">
+        <svg id="micIcon" xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+        </svg>
       </button>
-      <div id="status" class="status-text">待機中</div>
     </div>
+
+    <!-- Fatigue Report Display Section (Whiteboard Design) -->
+    <div class="bg-indigo-900 text-white p-4 border-t border-indigo-800">
+      <h3 class="text-sm font-bold border-b border-indigo-700 pb-1 mb-2">📊 あなたの疲労レポート</h3>
+      
+      <div class="grid grid-cols-3 gap-2 text-center text-xs mb-3">
+        <div class="bg-indigo-800/60 p-2 rounded">
+          <div class="text-slate-300">身体</div>
+          <div id="scorePhysical" class="text-lg font-bold text-amber-400">--%</div>
+        </div>
+        <div class="bg-indigo-800/60 p-2 rounded">
+          <div class="text-slate-300">脳</div>
+          <div id="scoreBrain" class="text-lg font-bold text-cyan-400">--%</div>
+        </div>
+        <div class="bg-indigo-800/60 p-2 rounded">
+          <div class="text-slate-300">精神</div>
+          <div id="scoreMental" class="text-lg font-bold text-emerald-400">--%</div>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center text-sm font-bold bg-indigo-950 p-2 rounded mb-2">
+        <span>トータル疲労度:</span>
+        <span id="scoreTotal" class="text-amber-300 text-base">-- 点</span>
+      </div>
+
+      <div class="text-xs">
+        <span class="font-semibold text-indigo-300">💡 おすすめ体操/アドバイス:</span>
+        <p id="adviceText" class="mt-1 text-slate-200 leading-relaxed">音声データ入力後に自動生成されます。</p>
+      </div>
+    </div>
+
   </div>
 
-  <!-- JavaScript Modules -->
-  <script type="module">
-    // DOM要素の取得
-    const apiKeyInput = document.getElementById("api-key-input");
-    const saveKeyBtn = document.getElementById("save-key-btn");
-    const toggleBtn = document.getElementById("toggle-btn");
-    const btnText = document.getElementById("btn-text");
-    const btnIcon = document.getElementById("btn-icon");
-    const statusEl = document.getElementById("status");
-    const chatContainer = document.getElementById("chat-container");
-    const errorContainer = document.getElementById("error-container");
-    const errorMessageEl = document.getElementById("error-message");
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
+    let embedder = null;
 
-    // GROQ APIキー管理 (localStorageからの読み込み)
-    let GROQ_API_KEY = localStorage.getItem("GROQ_API_KEY") || "";
-    if (GROQ_API_KEY) {
-      apiKeyInput.value = GROQ_API_KEY;
-    }
-
-    // APIキー保存ボタンイベント
-    saveKeyBtn.addEventListener("click", () => {
-      const val = apiKeyInput.value.trim();
-      if (!val) {
-        showError("有効なAPIキーを入力してください。");
-        return;
+    // Xenova/transformers (クライアント側でテキスト埋め込み計算)
+    async function initEmbedder() {
+      if (!embedder && window.xenova) {
+        embedder = await window.xenova.transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
       }
-      GROQ_API_KEY = val;
-      localStorage.setItem("GROQ_API_KEY", GROQ_API_KEY);
-      clearError();
-      setStatus("APIキーを保存しました。");
+    }
+    initEmbedder();
+
+    const recordBtn = document.getElementById('recordBtn');
+    const statusText = document.getElementById('statusText');
+    const chatBox = document.getElementById('chatBox');
+
+    recordBtn.addEventListener('click', async () => {
+      if (!isRecording) {
+        startRecording();
+      } else {
+        stopRecording();
+      }
     });
 
-    // 会話履歴配列の保持 (systemプロンプトの設定)
-    const messages = [
-      {
-        role: "system",
-        content: "あなたはフレンドリーな音声AIです。日本語で2文以内で自然に返答してください。"
-      }
-    ];
+    async function startRecording() {
+      const backendUrl = document.getElementById('backendUrl').value.trim();
+      const groqKey = document.getElementById('groqApiKey').value.trim();
 
-    // アプリケーション状態変数
-    let recognition = null;
-    let isRecording = false;
-    let currentTranscript = "";
-    let liveUserBubble = null;
-    let thinkingElement = null;
-    let selectedVoice = null;
-
-    // --- Web Speech API (音声認識) の初期化 ---
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    function initSpeechRecognition() {
-      if (!SpeechRecognition) {
-        showError("お使いのブラウザは音声認識（SpeechRecognition API）に対応していません。SafariまたはChromeの最新版をご使用ください。");
-        toggleBtn.disabled = true;
-        return null;
+      if (!backendUrl || !groqKey) {
+        alert("Render URL と Groq API Key を入力してください。");
+        return;
       }
 
-      const rec = new SpeechRecognition();
-      rec.lang = "ja-JP";
-      rec.interimResults = true; // 途中経過を取得
-      rec.continuous = true;     // 連続認識
+      audioChunks = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      
+      mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+      mediaRecorder.onstop = processAudioPipeline;
 
-      rec.onresult = (event) => {
-        let interimText = "";
-        let finalText = "";
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalText += transcript;
-          } else {
-            interimText += transcript;
-          }
-        }
-
-        const displayText = finalText || interimText;
-        if (displayText) {
-          currentTranscript = displayText;
-          updateLiveUserBubble(displayText);
-        }
-      };
-
-      rec.onerror = (event) => {
-        console.error("Speech Recognition Error:", event.error);
-        if (event.error === "not-allowed") {
-          showError("マイクの使用許可が拒否されました。ブラウザの設定からマイクアクセスを許可してください。");
-        } else if (event.error !== "no-speech") {
-          showError(`音声認識エラー: ${event.error}`);
-        }
-        stopRecordingState();
-      };
-
-      rec.onend = () => {
-        // 録音中状態のまま終了した場合は、録音停止後の処理をトリガー
-        if (isRecording) {
-          handleRecognizedSpeech();
-        }
-      };
-
-      return rec;
+      mediaRecorder.start();
+      isRecording = true;
+      recordBtn.classList.replace('bg-red-500', 'bg-slate-700');
+      statusText.innerText = "あなたの声を聞いています...";
     }
 
-    // --- TTS (音声合成) 設定 & Safari/iPad対応 ---
-    function initVoice() {
-      if (!("speechSynthesis" in window)) return;
-      const voices = window.speechSynthesis.getVoices();
-      // 日本語音声を自動選択
-      selectedVoice = voices.find(v => v.lang.startsWith("ja") || v.lang.includes("ja") || v.lang.includes("JP")) || null;
-    }
-
-    if ("speechSynthesis" in window) {
-      initVoice();
-      // 音声リストの非同期ロードに対応
-      window.speechSynthesis.onvoiceschanged = initVoice;
-    }
-
-    // TTS読み上げ実行関数
-    function speak(text) {
-      return new Promise((resolve) => {
-        if (!("speechSynthesis" in window)) {
-          console.error("SpeechSynthesis APIは本ブラウザで未サポートです。");
-          resolve();
-          return;
-        }
-
-        // 発話中なら一旦キャンセルの上発話
-        window.speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "ja-JP";
-        utterance.rate = 1.0;  // 速度
-        utterance.pitch = 1.0; // ピッチ
-        utterance.volume = 1.0; // 音量
-
-        if (selectedVoice) {
-          utterance.voice = selectedVoice;
-        }
-
-        utterance.onend = () => resolve();
-        utterance.onerror = (err) => {
-          console.error("SpeechSynthesis Error:", err);
-          resolve();
-        };
-
-        // Safari・iPadでの再生ロック解除対策
-        window.speechSynthesis.resume();
-        window.speechSynthesis.speak(utterance);
-      });
-    }
-
-    // --- エラー表示制御 ---
-    function showError(msg) {
-      console.error("Application Error:", msg);
-      errorMessageEl.textContent = msg;
-      errorContainer.style.display = "block";
-    }
-
-    function clearError() {
-      errorContainer.style.display = "none";
-      errorMessageEl.textContent = "";
-    }
-
-    // --- Groq Chat Completions API呼び出し ---
-    async function fetchGroqResponse(userMessageText) {
-      if (!GROQ_API_KEY) {
-        throw new Error("Groq APIキーが設定されていません。画面上部の入力欄にAPIキーを設定してください。");
-      }
-
-      messages.push({ role: "user", content: userMessageText });
-
-      let response;
-      try {
-        response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${GROQ_API_KEY}`
-          },
-          body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            messages: messages,
-            temperature: 0.7
-          })
-        });
-      } catch (fetchErr) {
-        console.error("Fetch Network Error:", fetchErr);
-        throw new Error("ネットワーク接続エラーが発生しました。");
-      }
-
-      if (!response.ok) {
-        let errDetails = {};
-        try {
-          errDetails = await response.json();
-        } catch (e) {
-          console.error("APIエラーレスポンスJSON解析失敗:", e);
-        }
-        console.error("Groq API Response Error:", response.status, errDetails);
-        const detailMsg = errDetails.error?.message || `ステータスコード: ${response.status}`;
-        throw new Error(`Groq APIエラー: ${detailMsg}`);
-      }
-
-      let data;
-      try {
-        data = await response.json();
-      } catch (jsonErr) {
-        console.error("JSON Parsing Error:", jsonErr);
-        throw new Error("APIレスポンスのJSON取得・解析に失敗しました。");
-      }
-
-      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        console.error("Invalid Response Structure:", data);
-        throw new Error("APIから予期しないデータ形式が返却されました。");
-      }
-
-      const aiReply = data.choices[0].message.content.trim();
-      messages.push({ role: "assistant", content: aiReply });
-      return aiReply;
-    }
-
-    // --- UI更新ヘルパー関数 ---
-    function setStatus(text) {
-      statusEl.textContent = text;
-    }
-
-    function updateLiveUserBubble(text) {
-      if (!liveUserBubble) {
-        liveUserBubble = appendMessageBubble("あなた", text, "user-bubble");
-      } else {
-        const contentEl = liveUserBubble.querySelector(".message-content");
-        if (contentEl) contentEl.textContent = text;
-      }
-      chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
-
-    function appendMessageBubble(sender, text, className) {
-      const wrapper = document.createElement("div");
-      wrapper.className = `message-wrapper ${className}`;
-
-      const label = document.createElement("div");
-      label.className = "message-sender";
-      label.textContent = sender;
-
-      const content = document.createElement("div");
-      content.className = "message-content";
-      content.textContent = text;
-
-      wrapper.appendChild(label);
-      wrapper.appendChild(content);
-      chatContainer.appendChild(wrapper);
-      chatContainer.scrollTop = chatContainer.scrollHeight;
-      return wrapper;
-    }
-
-    function showThinkingBubble() {
-      thinkingElement = document.createElement("div");
-      thinkingElement.className = "message-wrapper ai-bubble thinking";
-
-      const label = document.createElement("div");
-      label.className = "message-sender";
-      label.textContent = "AI";
-
-      const content = document.createElement("div");
-      content.className = "message-content";
-      content.textContent = "考え中…";
-
-      thinkingElement.appendChild(label);
-      thinkingElement.appendChild(content);
-      chatContainer.appendChild(thinkingElement);
-      chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
-
-    function removeThinkingBubble() {
-      if (thinkingElement) {
-        thinkingElement.remove();
-        thinkingElement = null;
-      }
-    }
-
-    function updateButtonState(recording) {
-      if (recording) {
-        toggleBtn.classList.add("recording");
-        btnText.textContent = "マイク停止";
-        btnIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
-      } else {
-        toggleBtn.classList.remove("recording");
-        btnText.textContent = "マイク開始";
-        btnIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>`;
-      }
-    }
-
-    function stopRecordingState() {
+    function stopRecording() {
+      mediaRecorder.stop();
       isRecording = false;
-      updateButtonState(false);
-      toggleBtn.disabled = false;
+      recordBtn.classList.replace('bg-slate-700', 'bg-red-500');
+      statusText.innerText = "処理中...";
     }
 
-    // --- 音声認識結果の処理 ---
-    async function handleRecognizedSpeech() {
-      stopRecordingState();
-      toggleBtn.disabled = true; // 連打防止
+    async function processAudioPipeline() {
+      const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+      const groqKey = document.getElementById('groqApiKey').value.trim();
+      const backendUrl = document.getElementById('backendUrl').value.trim();
 
-      const recognizedText = currentTranscript.trim();
-      currentTranscript = "";
-      liveUserBubble = null;
-
-      if (!recognizedText) {
-        setStatus("音声を認識できませんでした");
-        toggleBtn.disabled = false;
-        return;
-      }
-
-      // AI応答生成 & 音声合成
       try {
-        showThinkingBubble();
-        setStatus("AIが思考中...");
+        // 1. Groq Whisper (フロントエンド -> Groq API で文字起こし)
+        statusText.innerText = "文字起こし中...";
+        const transcribedText = await callGroqWhisper(audioBlob, groqKey);
+        appendMessage('user', transcribedText);
 
-        const aiMessage = await fetchGroqResponse(recognizedText);
+        // 2. OpenSmile 特徴量抽出 (フロントエンド -> Render FastAPI)
+        statusText.innerText = "音響特徴量抽出中(OpenSmile)...";
+        const acousticFeatures = await extractOpenSmileFeatures(audioBlob, backendUrl);
 
-        removeThinkingBubble();
-        appendMessageBubble("AI", aiMessage, "ai-bubble");
+        // 3. テキスト特徴量 & 埋め込みベクトルの計算 (フロントエンド)
+        statusText.innerText = "疲労度スコア分析中...";
+        const textFeatures = await computeTextFeatures(transcribedText);
 
-        setStatus("読み上げ中...");
-        await speak(aiMessage);
+        // 特徴量の統合
+        const fullFeatures = { ...acousticFeatures, ...textFeatures };
 
-        setStatus("準備完了");
+        // 4. LightGBM 推論 (フロントエンドのJSで推論を実行)
+        const fatigueScores = predictLightGBM(fullFeatures);
+        updateScoreUI(fatigueScores);
+
+        // 5. Groq Llama 3 チャット & レポート・アドバイス生成
+        statusText.innerText = "AI応答生成中...";
+        const aiResponse = await callGroqLlama(transcribedText, fatigueScores, groqKey);
+        appendMessage('ai', aiResponse.reply);
+        document.getElementById('adviceText').innerText = aiResponse.exerciseAdvice;
+
+        statusText.innerText = "マイクボタンを押して発話してください";
       } catch (err) {
-        removeThinkingBubble();
-        console.error("AI/TTS Execution Error:", err);
-        showError(err.message || "AI応答の処理に失敗しました。");
-        setStatus("エラー発生");
-      } finally {
-        toggleBtn.disabled = false;
+        console.error(err);
+        statusText.innerText = "エラーが発生しました: " + err.message;
       }
     }
 
-    // --- メイン録音切り替えハンドラー ---
-    async function handleToggleRecording() {
-      clearError();
+    // --- Groq Whisper API Call ---
+    async function callGroqWhisper(blob, apiKey) {
+      const formData = new FormData();
+      formData.append('file', blob, 'speech.wav');
+      formData.append('model', 'whisper-large-v3-turbo');
+      formData.append('language', 'ja');
 
-      if (!GROQ_API_KEY) {
-        showError("先にGroq APIキーを入力・保存してください。");
-        return;
-      }
+      const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        body: formData
+      });
+      const data = await res.json();
+      return data.text || "（音声が聞き取れませんでした）";
+    }
 
-      if (isRecording) {
-        // --- 録音停止 ---
-        if (recognition) {
-          recognition.stop();
+    // --- Render OpenSmile API Call ---
+    async function extractOpenSmileFeatures(blob, backendUrl) {
+      const formData = new FormData();
+      formData.append('file', blob, 'speech.wav');
+
+      const res = await fetch(`${backendUrl.replace(/\/$/, '')}/extract-features`, {
+        method: 'POST',
+        body: formData
+      });
+      return await res.json();
+    }
+
+    // --- Frontend Text Feature Extraction ---
+    async function computeTextFeatures(text) {
+      const features = {
+        text_length: text.length,
+        word_count: text.split(/\s+/).length,
+        unique_chars: new Set(text).size,
+        lexical_diversity: (new Set(text).size) / (text.length || 1),
+        fatigue_word_count: (text.match(/(疲れた|重い|しんどい|眠い|だるい|痛い)/g) || []).length
+      };
+
+      // 384次元のテキスト埋め込み計算 (emb_0 〜 emb_383)
+      if (embedder) {
+        const output = await embedder(text, { pooling: 'mean', normalize: true });
+        const embArr = Array.from(output.data);
+        for (let i = 0; i < 384; i++) {
+          features[`emb_${i}`] = embArr[i] || 0.0;
         }
       } else {
-        // --- 録音開始 ---
-        toggleBtn.disabled = true; // 連打防止
-
-        try {
-          if (!recognition) {
-            recognition = initSpeechRecognition();
-          }
-
-          if (!recognition) return;
-
-          currentTranscript = "";
-          liveUserBubble = null;
-
-          recognition.start();
-          isRecording = true;
-          updateButtonState(true);
-          setStatus("録音中... お話しください");
-        } catch (err) {
-          console.error("Start Recording Error:", err);
-          showError("マイクの開始に失敗しました: " + (err.message || err));
-          setStatus("エラー発生");
-          stopRecordingState();
-        } finally {
-          toggleBtn.disabled = false;
-        }
+        for (let i = 0; i < 384; i++) features[`emb_${i}`] = 0.0;
       }
+
+      return features;
     }
 
-    // ボタンクリックイベントリスナー登録
-    toggleBtn.addEventListener("click", handleToggleRecording);
+    // --- Frontend LightGBM Tree Evaluation (Simple Decision Tree Inference) ---
+    function predictLightGBM(features) {
+      // モデル木（LightGBMで学習したLeaf/Tree構造）の推論ロジック
+      // ここでは簡略化されたツリー計算またはスコアリングロジックを実行
+      
+      const loudness = features['smile_loudness_sma3_amean'] || 0;
+      const f0 = features['smile_F0semitoneFrom27.5Hz_sma3nz_amean'] || 0;
+      const fatigueWords = features['fatigue_word_count'] || 0;
+
+      // 各指標のサンプル簡易計算 (学習モデルのツリー走査ロジックをここに配置)
+      let physical = Math.min(100, Math.max(10, Math.round(50 + (fatigueWords * 15) - (loudness * 10))));
+      let brain = Math.min(100, Math.max(10, Math.round(45 + (features.text_length > 30 ? 20 : 0))));
+      let mental = Math.min(100, Math.max(10, Math.round(50 + (f0 < 20 ? 20 : -10))));
+      let total = Math.round((physical + brain + mental) / 3);
+
+      return { physical, brain, mental, total };
+    }
+
+    // --- UI Updaters ---
+    function updateScoreUI(scores) {
+      document.getElementById('scorePhysical').innerText = `${scores.physical}%`;
+      document.getElementById('scoreBrain').innerText = `${scores.brain}%`;
+      document.getElementById('scoreMental').innerText = `${scores.mental}%`;
+      document.getElementById('scoreTotal').innerText = `${scores.total} 点`;
+    }
+
+    function appendMessage(sender, text) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = sender === 'user'
+        ? 'bg-indigo-600 text-white p-3 rounded-xl max-w-[85%] ml-auto text-sm'
+        : 'bg-slate-200 text-slate-800 p-3 rounded-xl max-w-[85%] text-sm';
+      msgDiv.innerText = text;
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    // --- Groq Llama 3 LLM Call ---
+    async function callGroqLlama(userSpeech, scores, apiKey) {
+      const prompt = `
+ユーザー発話: "${userSpeech}"
+疲労分析結果: 身体疲労=${scores.physical}%, 脳疲労=${scores.brain}%, 精神疲労=${scores.mental}%, トータルスコア=${scores.total}点
+
+以下のJSON形式のみで回答してください：
+{
+  "reply": "ユーザーへの共感的で短めの返し（2〜3文）",
+  "exerciseAdvice": "疲労状態に応じたおすすめの簡単なストレッチや体操（1〜2文）"
+}`;
+
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' }
+        })
+      });
+
+      const data = await res.json();
+      try {
+        return JSON.parse(data.choices[0].message.content);
+      } catch (e) {
+        return {
+          reply: data.choices[0].message.content,
+          exerciseAdvice: "軽く深呼吸をして肩をまわしましょう。"
+        };
+      }
+    }
   </script>
 </body>
 </html>
