@@ -1,0 +1,4 @@
+fastapi
+uvicorn
+opensmile
+python-multipart
