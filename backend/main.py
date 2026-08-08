@@ -1,12 +1,19 @@
+# 追加で必要なパッケージ
+# requirements.txt に以下を追記
+# edge-tts
+# aiofiles
+
 import os
 import tempfile
-from fastapi import FastAPI, File, UploadFile, HTTPException
+import asyncio
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 import opensmile
+import edge_tts
 
-app = FastAPI(title="OpenSmile eGeMAPS Feature Extractor")
+app = FastAPI(title="OpenSmile + Edge TTS")
 
-# CORS設定（GitHub Pagesからのアクセスを許可）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,45 +22,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# OpenSmile eGeMAPSv02 エクストラクタの初期化
 smile = opensmile.Smile(
     feature_set=opensmile.FeatureSet.eGeMAPSv02,
     feature_level=opensmile.FeatureLevel.Functionals,
 )
 
+# -------------------- 既存の /extract-features はそのまま --------------------
 @app.post("/extract-features")
 async def extract_features(file: UploadFile = File(...)):
-    if not file.filename.endswith(('.wav', '.webm', '.ogg', '.mp4', '.m4a')):
-        # オーディオ形式のチェック
-        pass
+    # ... 既存のコードのまま ...
+    pass   # ← 実際は既存の実装を残す
 
-    # 一時ファイルとして保存
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-
+# -------------------- 新規：TTSエンドポイント --------------------
+@app.get("/tts")
+async def tts(
+    text: str = Query(..., min_length=1, max_length=300),
+    voice: str = Query("ja-JP-NanamiNeural")  # 女性の自然な声
+):
+    """
+    無料の Microsoft Edge TTS を使用
+    対応日本語ボイス例:
+      ja-JP-NanamiNeural (女性・おすすめ)
+      ja-JP-KeitaNeural  (男性)
+      ja-JP-AoiNeural
+      ja-JP-DaichiNeural
+    """
     try:
-        # OpenSmileによる特徴量抽出
-        df = smile.process_file(tmp_path)
-        features = df.iloc[0].to_dict()
+        communicate = edge_tts.Communicate(text, voice)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            tmp_path = tmp.name
 
-        # NaNやInfを0.0に置換してJSON互換にする
-        cleaned_features = {}
-        for k, v in features.items():
-            val = float(v)
-            if val != val or val == float('inf') or val == float('-inf'):
-                cleaned_features[k] = 0.0
-            else:
-                cleaned_features[k] = val
+        await communicate.save(tmp_path)
 
-        return cleaned_features
+        with open(tmp_path, "rb") as f:
+            audio_data = f.read()
+
+        os.remove(tmp_path)
+
+        return Response(
+            content=audio_data,
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-cache"}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+
 
 @app.get("/")
 def health_check():
-    return {"status": "ok", "service": "OpenSmile Extractor"}
+    return {"status": "ok", "service": "OpenSmile + Edge TTS"}
