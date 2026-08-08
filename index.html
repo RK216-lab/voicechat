@@ -560,6 +560,20 @@
         }
       }
 
+
+      // === 疲労語彙ブースト ===
+      const fatigueBoostKeywords = ["疲れ","疲れた","だるい","眠い","しんどい","つかれ","凝っ","重い","肩","首","頭痛","倦怠","やる気","集中でき"];
+      const hasFatigueWord = fatigueBoostKeywords.some(kw => (userText||"").includes(kw));
+      const strongFatigue = ["めっちゃ疲れ","すごく疲れ","死ぬほど疲れ","クタクタ","ヘトヘト","全然集中でき","首から","肩が"].some(kw => (userText||"").includes(kw));
+      if (hasFatigueWord) {
+        const boostVal = strongFatigue ? 28 : 15;
+        embedScores.physical = Math.min(93, embedScores.physical + boostVal);
+        embedScores.brain = Math.min(93, embedScores.brain + Math.round(boostVal*0.8));
+        embedScores.mental = Math.min(93, embedScores.mental + Math.round(boostVal*0.9));
+        const avg = (embedScores.physical + embedScores.brain + embedScores.mental)/3;
+        embedScores.total = Math.max(18, Math.min(95, Math.round(100 - avg*0.88)));
+      }
+
       // 音響ハイブリッド
       const ac = acousticFatigueProxy(acoustic || lastAcoustic);
       if (ac != null) {
@@ -580,45 +594,8 @@
 
 
     // ===== LightGBMバックエンド版スコア取得 (新規) =====
-    async function scoreFromBackend(audioBlob) {
-      if (!audioBlob) throw new Error("no audio blob");
-      const form = new FormData();
-      form.append("file", audioBlob, "recording.webm");
-      const res = await fetch(`${BACKEND_URL}/predict-fatigue`, {
-        method: "POST",
-        body: form
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error("backend predict failed: " + t);
-      }
-      const data = await res.json();
-      // data: {physical, brain, mental, total, physical_raw...}
-      return {
-        physical: Math.round(data.physical),
-        brain: Math.round(data.brain),
-        mental: Math.round(data.mental),
-        total: Math.round(data.total),
-        raw: data,
-        source: "lightgbm"
-      };
-    }
 
-    async function scoreWithFallback(userText, acoustic, audioBlob) {
-      // まずLightGBMバックエンドを試す
-      if (audioBlob) {
-        try {
-          statusText.textContent = "疲労度モデルで分析中...";
-          const backendScores = await scoreFromBackend(audioBlob);
-          console.log("[LightGBM] success", backendScores);
-          return backendScores;
-        } catch (e) {
-          console.warn("[LightGBM] failed, fallback to embedding:", e);
-        }
-      }
-      // フォールバック: 従来の埋め込み+音響ヒューリスティック
-      return await scoreFromText(userText, acoustic);
-    }
+
 
     function pickRecovery(scores) {
       const entries = [
@@ -719,7 +696,6 @@
         startLoadCopyRotation();
         updateProgress(8, "8%");
 
-        // Transformers.js の動的importをリトライ付きで
         let transformers = null;
         const cdnUrls = [
           "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0",
@@ -742,7 +718,6 @@
         env.useBrowserCache = true;
 
         updateProgress(18, "18%");
-        // 埋め込みモデルのロードは失敗しても続行できるように
         let embedP = loadEmbedder().catch(err => {
           console.warn("Embedder load failed, continuing with heuristic fallback", err);
           isEmbedReady = false;
@@ -758,9 +733,7 @@
           ]);
         } catch (e) {
           console.error("Moonshine model load failed", e);
-          // フォールバック: Web Speech APIが使えるかチェック、無ければエラー表示だがUIは進める
-          statusText.textContent = "音声認識モデルの読み込みに失敗、再試行します...";
-          // 1回リトライ
+          statusText.textContent = "音声認識モデルの読み込みに失敗、再試行中...";
           await new Promise(r => setTimeout(r, 2000));
           try {
             [model, processor, tokenizer] = await Promise.all([
@@ -770,7 +743,6 @@
             ]);
           } catch (e2) {
             console.error("Retry failed", e2);
-            // 最終フォールバック: モデル無しでもマイクは有効にする
             model = null;
           }
         }
@@ -790,8 +762,8 @@
         setMicUI(false);
         updateProgress(5, "5%");
         speakAI(currentOpening, () => {
-          // 最初の挨拶の後は自動録音せず、ユーザーに押してもらう
           statusText.textContent = "マイクを押して話してください";
+          micHint.textContent = "タップして話す";
           micBtn.disabled = false;
           micBtn.classList.remove("opacity-50");
         });
@@ -800,7 +772,6 @@
         stopLoadCopyRotation();
         statusText.textContent = "モデル読み込み失敗 - タップで再試行";
         aiPromptText.innerHTML = "ネットワーク状況によりモデルの読み込みに失敗しました。<br>ページを再読み込みするか、マイクボタンを押して再試行してください。";
-        // 失敗してもマイクは試せるようにする
         micBtn.disabled = false;
         micBtn.classList.remove("opacity-50");
         micBtn.onclick = () => {
@@ -992,10 +963,11 @@
     }
 
     function afterSpeakThenRecord() {
-      // 自動録音を廃止: ユーザーがマイクボタンを押すまで待つ
+      // 自動録音を廃止: ユーザーがマイクボタンを押すまで待つ (焦らせないため)
       setTimeout(() => {
         if (isModelReady && currentTurn < 2 && viewResultBtn.classList.contains("hidden")) {
           statusText.textContent = "AIの返答が終わりました。マイクを押して続けてください";
+          micHint.textContent = "タップして話す";
           micBtn.disabled = false;
           micBtn.classList.remove("opacity-50");
           setMicUI(false);

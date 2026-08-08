@@ -6,4 +6,3 @@ edge-tts
 lightgbm
 numpy
 scikit-learn
-pydub
