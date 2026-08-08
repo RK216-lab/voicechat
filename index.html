@@ -197,19 +197,393 @@
   </div>
 
   <script type="module">
+    // =========================================================
+    // 自分スキャン — 完全版
+    // =========================================================
+    const BACKEND_URL = "https://voicechat-gz4j.onrender.com";
+    const MODEL_ID = "wmoto-ai/moonshine-tiny-ja-ONNX";
+    const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 
-    // ===== アンサンブル版: 声 + 埋め込み =====
-    async function scoreFromBackend(audioBlob, text, embedRaw) {
+    // 録音: 考えながら話せるよう緩めに
+    const SILENCE_THRESHOLD = 0.011;
+    const SILENCE_MS = 2200;
+    const POST_TTS_GAP_MS = 420;
+    const EMBED_WEIGHT = 0.80;
+    const ACOUSTIC_WEIGHT = 0.20;
+
+    // ---------- 状態 ----------
+    let model = null, processor = null, tokenizer = null;
+    let extractor = null;
+    let defVectors = null;
+    let isModelReady = false;
+    let isEmbedReady = false;
+    let isRecording = false;
+    let isSpeaking = false;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let audioContext = null;
+    let analyser = null;
+    let silenceStart = null;
+    let waveRaf = null;
+    let currentTurn = 0;
+    let allUserTexts = [];
+    let lastAudioBlob = null; // LightGBM用に最後の音声を保持
+    let conversationLog = [];
+    let lastAcoustic = {};
+    let currentOpening = "";
+    let loadCopyTimer = null;
+
+    // ---------- DOM ----------
+    const statusText    = document.getElementById("statusText");
+    const aiPromptText  = document.getElementById("aiPromptText");
+    const progressBar   = document.getElementById("progressBar");
+    const progressText  = document.getElementById("progressText");
+    const micBtn        = document.getElementById("micBtn");
+    const micHint       = document.getElementById("micHint");
+    const micInnerIcon  = document.getElementById("micInnerIcon");
+    const waveContainer = document.getElementById("waveContainer");
+    const waveDots      = [...waveContainer.querySelectorAll(".wave-dot")];
+    const viewResultBtn = document.getElementById("viewResultBtn");
+    const recoveryList  = document.getElementById("recoveryList");
+    const scanScreen    = document.getElementById("scanScreen");
+    const resultScreen  = document.getElementById("resultScreen");
+
+    // ---------- オープニング（具体・答えやすい） ----------
+    const OPENINGS = [
+      "こんにちは。今日いちばん体に感じていることをひとこと教えてください。たとえば「肩がこってる」や「目がしょぼしょぼ」でも大丈夫です。",
+      "お疲れさまです。朝から今までで、ちょっとしんどいなと思った場面はありましたか？",
+      "こんにちは。今の気分を天気に例えるなら、晴れ・くもり・雨のどれに近いですか？",
+      "少しだけお話ししてもいいですか。最近、集中が途切れやすいことや、体が重いことはありますか？",
+      "こんにちは。仕事や勉強のあと、体と頭、どちらが先に疲れやすいですか？",
+      "今日の自分を0から10で表すなら、何点くらいの調子ですか？ ざっくりで大丈夫です。",
+      "お疲れさまです。昨夜の睡眠や今朝の目覚めは、いつもの自分と比べてどうでしたか？",
+      "こんにちは。いま一番ほしいものは、休み・食事・誰かとの話・何もしない時間、どれに近いですか？",
+      "こんにちは。今、目・肩・頭・気持ちのうち、いちばん気になるところはどこですか？",
+      "お疲れさまです。今日は「動けない疲れ」と「考えたくない疲れ」、どちらに近い感じがしますか？"
+    ];
+
+    const LOAD_COPIES = [
+      "AIが耳を澄ます準備をしています…",
+      "言葉のニュアンスを読み解く準備中…",
+      "やさしく聞くモードを整えています…",
+      "あなたの声の特徴を受け取る準備中…",
+      "まもなくお話しできます…"
+    ];
+
+    // ---------- システムプロンプト ----------
+    const SYSTEM_BASE = `あなたは疲労スキャンのための、短くて温かい聞き手です。
+厳守ルール:
+- 必ず日本語。全体で60文字以内。1〜2文だけ。
+- 質問は最大1つ。箇条書き・説明・診断名・スコア・医学的断定は禁止。
+- ユーザーが使ったキーワード（部位・感情・数字など）を一度オウム返ししてから共感する。
+- 短く答えても責めない。`;
+
+    function buildTurnSystem(phase, openingText) {
+      if (phase === "followup") {
+        return `${SYSTEM_BASE}
+今は2回目の発話です。最初の問いかけは次でした:「${openingText}」
+手順: ①ユーザーの言葉を短く受け止める ②最初の質問と違う角度で、やさしい深掘りを1つだけ。
+禁止: 「調子はどうですか？」など最初と同じ聞き直し。
+良い例: 「肩がこってるんですね。それは朝から続いていますか？」
+悪い例: 「今日の調子はどうですか？」`;
+      }
+      return `${SYSTEM_BASE}
+最後の発話です。これまでの内容を1文で受け止め、「話してくれてありがとう」と伝えて終えてください。
+新しい質問は禁止。診断やスコアには触れない。40文字以内。`;
+    }
+
+    // ---------- 疲労プロトタイプ（口語・複合症状を拡充） ----------
+    const FATIGUE_DEFS = {
+      body: [
+        "体が重い、だるい、肩や首や腰が張って動くのがつらい",
+        "朝起きたときに体が軽く感じられない、体力が落ちたように思う",
+        "目がしょぼしょぼする、まぶたが重い、目の奥が疲れる",
+        "いつもより動くことが負担、立ち仕事や歩行で足が鉛のよう",
+        "筋肉の張りや違和感、体のどこかがこわばっている",
+        "眠いというより体が鉛のようで横になりたい",
+        "頭痛や肩こりが続いている、姿勢を保つのがつらい",
+        "食欲がないわけではないが体がついてこない感じ"
+      ],
+      brain: [
+        "頭がぼんやりして集中できない、ミスが増えたように感じる",
+        "情報を整理したり思い出す作業が難しく感じる",
+        "何も考えたくない、頭を使いたくない",
+        "画面を見続けるとすぐ疲れる、注意が途切れやすい",
+        "判断にいつもより時間がかかる、考えがまとまらない",
+        "言葉が出にくい、話の要点をつかむのが大変",
+        "同じことを何度も確認してしまう、忘れっぽい",
+        "頭の回転が遅い感じ、頭にモヤがかかっている"
+      ],
+      mental: [
+        "気持ちが休まらない、イライラする、気分が落ち込む",
+        "プレッシャーを感じて心が疲れている、気分が揺れやすい",
+        "やる気が出ない、何をするにも気が重い",
+        "不安が続きリラックスできない、気持ちの切り替えが難しい",
+        "人と話すのが少し負担、一人になりたい気持ちがある",
+        "些細なことで腹が立つ、感情のコントロールが難しい",
+        "落ち込みやすく、前向きな気持ちが続かない",
+        "心がざわついて落ち着かない、休息しても回復感がない"
+      ],
+      healthy: [
+        "特に疲れはなく調子がよい、体も頭も軽く感じる",
+        "集中できて気分も安定している、いつも通り元気だ",
+        "睡眠も食欲も問題なく無理なく一日を過ごせている",
+        "ストレスはあるがコントロールできて休息も取れている",
+        "体も気持ちもすっきりしていて前向きに動けている",
+        "別につらくない、特に気になる不調はない"
+      ]
+    };
+
+    const RECOVERY = {
+      body: [
+        { icon: "self_improvement", color: "#ea580c", bg: "bg-orange-100", title: "軽いストレッチ", desc: "座ったまま肩・首をゆっくり回す（3分）" },
+        { icon: "hot_tub", color: "#0284c7", bg: "bg-sky-100", title: "温活", desc: "ぬるめのお湯で体の芯を温める" },
+        { icon: "hotel", color: "#7c3aed", bg: "bg-violet-100", title: "短い仮眠", desc: "15〜20分の昼寝で体を休める" },
+        { icon: "visibility_off", color: "#0f766e", bg: "bg-teal-100", title: "目を休める", desc: "画面を閉じ、遠くを1分見る" }
+      ],
+      brain: [
+        { icon: "visibility", color: "#0891b2", bg: "bg-cyan-100", title: "画面から離れる", desc: "5〜10分、遠くを見て目と頭を休める" },
+        { icon: "directions_walk", color: "#16a34a", bg: "bg-green-100", title: "短い散歩", desc: "外の空気を吸って頭を切り替える" },
+        { icon: "schedule", color: "#ca8a04", bg: "bg-yellow-100", title: "判断を後回し", desc: "難しい判断は後で、簡単な作業だけにする" },
+        { icon: "timer", color: "#64748b", bg: "bg-slate-100", title: "ポモドーロ休息", desc: "25分集中したら5分完全に休む" }
+      ],
+      mental: [
+        { icon: "air", color: "#2563eb", bg: "bg-blue-100", title: "深呼吸", desc: "4秒吸って6秒吐く呼吸を5回" },
+        { icon: "edit_note", color: "#db2777", bg: "bg-pink-100", title: "気持ちの書き出し", desc: "今気になっていることをメモに出すだけ" },
+        { icon: "music_note", color: "#9333ea", bg: "bg-purple-100", title: "好きな休息", desc: "何もしない時間を10分つくる" },
+        { icon: "chat_bubble_outline", color: "#ea580c", bg: "bg-orange-50", title: "誰かと話す", desc: "信頼できる人に一言だけ近況を共有する" }
+      ],
+      general: [
+        { icon: "local_drink", color: "#0d9488", bg: "bg-teal-100", title: "水分補給", desc: "常温の水をゆっくり飲む" },
+        { icon: "bedtime", color: "#4f46e5", bg: "bg-indigo-100", title: "早めの就寝準備", desc: "いつもより30分早く寝る準備を始める" }
+      ]
+    };
+
+    // =========================================================
+    // テキスト前処理・程度/否定補正
+    // =========================================================
+    const FILLER_RE = /^(えっと|えー|あの|その|まあ|なんか|こう|はい|うん|うーん)+/g;
+    const FILLER_MID_RE = /(えっと|えー+|あのー*|そのー*|なんか|こう)/g;
+
+    const SYNONYM_MAP = [
+      [/しんどい|へろへろ|くたくた|げっそり/g, "疲れている"],
+      [/だるい|体が重い|鉛みたい|鉛のよう/g, "体が重い"],
+      [/しょぼしょぼ|しょぼい|目が重い/g, "目が疲れた"],
+      [/イライラ|いらいら|むかつく|腹が立つ/g, "イライラする"],
+      [/ぼーっと|ぼんやり|頭が真っ白/g, "集中できない"],
+      [/なんもしたくない|何もしたくない|考えたくない/g, "何も考えたくない"],
+      [/ねむい|眠い|眠たい/g, "眠い"],
+      [/つかれた|疲れた|疲労/g, "疲れている"]
+    ];
+
+    function preprocessText(raw) {
+      if (!raw) return "";
+      let t = String(raw).normalize("NFKC").trim();
+      t = t.replace(FILLER_RE, "").replace(FILLER_MID_RE, "");
+      t = t.replace(/[、,]{2,}/g, "、").replace(/\s+/g, " ").trim();
+      for (const [re, rep] of SYNONYM_MAP) t = t.replace(re, rep);
+      return t;
+    }
+
+    /**
+     * 程度・否定のヒューリスティック補正係数
+     * return: { scale: 0.4〜1.35, negated: boolean, intensity: 'low'|'mid'|'high' }
+     */
+    function analyzeModifiers(text) {
+      const t = text || "";
+      let scale = 1.0;
+      let negated = false;
+      let intensity = "mid";
+
+      // 否定（疲労の否定）
+      if (/(つらくない|疲れてない|疲れていない|大丈夫|問題ない|平気|気にならない|別につら|そんなに(疲れ|つら|しんど)|特に(ない|問題|疲れ))/.test(t)) {
+        negated = true;
+        scale *= 0.45;
+      }
+      // 部分否定
+      if (/(あまり|そんなに|あまり〜ない)/.test(t) && /(疲れ|つら|しんど|重|だる)/.test(t)) {
+        scale *= 0.7;
+      }
+
+      // 弱い程度
+      if (/(少し|ちょっと|やや|軽く|たまに)/.test(t)) {
+        scale *= 0.75;
+        intensity = "low";
+      }
+      // 強い程度
+      if (/(かなり|とても|すごく|めっちゃ|本当に|すごく|ひどく|限界|もう無理|かなりしんど)/.test(t)) {
+        scale *= 1.28;
+        intensity = "high";
+      }
+      if (/(ずっと|一日中|朝から|続いて)/.test(t)) {
+        scale *= 1.12;
+      }
+
+      scale = Math.max(0.4, Math.min(1.35, scale));
+      return { scale, negated, intensity };
+    }
+
+    // =========================================================
+    // 埋め込み
+    // =========================================================
+    async function loadEmbedder(onProgress) {
+      try {
+        if (onProgress) onProgress("言葉のニュアンスを読み解く準備中…");
+        const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0");
+        extractor = await pipeline("feature-extraction", EMBED_MODEL, {
+          dtype: "q8",
+          device: "wasm"
+        });
+        defVectors = {};
+        for (const [key, texts] of Object.entries(FATIGUE_DEFS)) {
+          const vecs = [];
+          for (const t of texts) {
+            const out = await extractor(t, { pooling: "mean", normalize: true });
+            vecs.push(Array.from(out.data));
+          }
+          defVectors[key] = vecs;
+        }
+        isEmbedReady = true;
+      } catch (e) {
+        console.warn("埋め込み読み込み失敗", e);
+        isEmbedReady = false;
+      }
+    }
+
+    function cosine(a, b) {
+      let s = 0;
+      const n = Math.min(a.length, b.length);
+      for (let i = 0; i < n; i++) s += a[i] * b[i];
+      return s;
+    }
+
+    function simToCategory(userVec, prototypes) {
+      const sims = prototypes.map(p => cosine(userVec, p));
+      const maxS = Math.max(...sims);
+      const meanS = sims.reduce((a, b) => a + b, 0) / sims.length;
+      return 0.7 * maxS + 0.3 * meanS;
+    }
+
+    /** 音響特徴 → 簡易疲労寄与 0〜100 */
+    function acousticFatigueProxy(f) {
+      if (!f || typeof f !== "object" || !Object.keys(f).length) return null;
+      const get = (...keys) => {
+        for (const k of keys) {
+          if (f[k] != null && Number.isFinite(Number(f[k]))) return Number(f[k]);
+        }
+        // prefix なし / smile_ 両対応
+        for (const k of Object.keys(f)) {
+          for (const want of keys) {
+            if (k.endsWith(want) || k.includes(want)) {
+              const v = Number(f[k]);
+              if (Number.isFinite(v)) return v;
+            }
+          }
+        }
+        return null;
+      };
+
+      const loud = get("loudness_sma3_amean", "smile_loudness_sma3_amean");
+      const jitter = get("jitterLocal_sma3nz_amean", "smile_jitterLocal_sma3nz_amean");
+      const hnr = get("HNRdBACF_sma3nz_amean", "smile_HNRdBACF_sma3nz_amean");
+      const flux = get("spectralFlux_sma3_amean", "smile_spectralFlux_sma3_amean");
+
+      // 経験的: 小さい声・高いjitter・低いHNR → 疲労寄り
+      let score = 50;
+      if (loud != null) score += (0.35 - loud) * 60;
+      if (jitter != null) score += (jitter - 0.02) * 400;
+      if (hnr != null) score += (8 - hnr) * 2.5;
+      if (flux != null) score += (flux - 0.15) * 40;
+      return Math.max(20, Math.min(88, Math.round(score)));
+    }
+
+    function heuristicTextScores(text) {
+      const t = text || "";
+      let physical = 42, brain = 42, mental = 42;
+      if (/だる|重い|肩こり|腰痛|眠い|体力|こわば|張|目が疲|しょぼ/.test(t)) physical += 22;
+      if (/集中|ぼんやり|ミス|頭|忘れ|整理|判断|考えたくない|モヤ/.test(t)) brain += 22;
+      if (/イライラ|落ち[込こ]|不安|ストレス|つらい|気[がも]重|やる気|ざわ/.test(t)) mental += 20;
+      if (/元気|調子いい|大丈夫|問題ない|すっきり|快調|つらくない/.test(t)) {
+        physical -= 18; brain -= 18; mental -= 18;
+      }
+      const mod = analyzeModifiers(t);
+      physical = Math.max(15, Math.min(92, Math.round(physical * mod.scale)));
+      brain = Math.max(15, Math.min(92, Math.round(brain * mod.scale)));
+      mental = Math.max(15, Math.min(92, Math.round(mental * mod.scale)));
+      if (mod.negated) {
+        physical = Math.min(physical, 40);
+        brain = Math.min(brain, 40);
+        mental = Math.min(mental, 40);
+      }
+      const total = Math.round(100 - (physical + brain + mental) / 3 * 0.88);
+      return { physical, brain, mental, total: Math.max(22, Math.min(92, total)) };
+    }
+
+    async function scoreFromText(userText, acoustic) {
+      const cleaned = preprocessText(userText);
+      const mod = analyzeModifiers(userText || cleaned);
+
+      let embedScores;
+      if (!isEmbedReady || !extractor || !defVectors) {
+        embedScores = heuristicTextScores(cleaned);
+      } else {
+        try {
+          const out = await extractor(cleaned || "特になし", { pooling: "mean", normalize: true });
+          const v = Array.from(out.data);
+          const raw = {
+            body: simToCategory(v, defVectors.body),
+            brain: simToCategory(v, defVectors.brain),
+            mental: simToCategory(v, defVectors.mental),
+            healthy: simToCategory(v, defVectors.healthy)
+          };
+          const toPct = (c) => Math.max(12, Math.min(93, Math.round(48 + c * 160)));
+          let physical = toPct(raw.body - raw.healthy);
+          let brain = toPct(raw.brain - raw.healthy);
+          let mental = toPct(raw.mental - raw.healthy);
+
+          // 程度・否定補正
+          physical = Math.max(12, Math.min(93, Math.round(physical * mod.scale)));
+          brain = Math.max(12, Math.min(93, Math.round(brain * mod.scale)));
+          mental = Math.max(12, Math.min(93, Math.round(mental * mod.scale)));
+          if (mod.negated) {
+            physical = Math.min(physical, 38);
+            brain = Math.min(brain, 38);
+            mental = Math.min(mental, 38);
+          }
+
+          const avgFatigue = (physical + brain + mental) / 3;
+          const total = Math.max(18, Math.min(95, Math.round(100 - avgFatigue * 0.88)));
+          embedScores = { physical, brain, mental, total, raw };
+        } catch (e) {
+          console.warn("埋め込みスコア失敗", e);
+          embedScores = heuristicTextScores(cleaned);
+        }
+      }
+
+      // 音響ハイブリッド
+      const ac = acousticFatigueProxy(acoustic || lastAcoustic);
+      if (ac != null) {
+        const blend = (e) => Math.round(e * EMBED_WEIGHT + ac * ACOUSTIC_WEIGHT);
+        embedScores = {
+          ...embedScores,
+          physical: blend(embedScores.physical),
+          brain: blend(embedScores.brain),
+          mental: blend(embedScores.mental)
+        };
+        const avg = (embedScores.physical + embedScores.brain + embedScores.mental) / 3;
+        embedScores.total = Math.max(18, Math.min(95, Math.round(100 - avg * 0.88)));
+        embedScores.acousticProxy = ac;
+      }
+
+      return embedScores;
+    }
+
+
+    // ===== LightGBMバックエンド版スコア取得 (新規) =====
+    async function scoreFromBackend(audioBlob) {
       if (!audioBlob) throw new Error("no audio blob");
       const form = new FormData();
       form.append("file", audioBlob, "recording.webm");
-      form.append("text", text || "");
-      if (embedRaw) {
-        if (embedRaw.body !== undefined) form.append("sim_body", String(embedRaw.body));
-        if (embedRaw.brain !== undefined) form.append("sim_brain", String(embedRaw.brain));
-        if (embedRaw.mental !== undefined) form.append("sim_mental", String(embedRaw.mental));
-        if (embedRaw.healthy !== undefined) form.append("sim_healthy", String(embedRaw.healthy));
-      }
       const res = await fetch(`${BACKEND_URL}/predict-fatigue`, {
         method: "POST",
         body: form
@@ -219,48 +593,32 @@
         throw new Error("backend predict failed: " + t);
       }
       const data = await res.json();
+      // data: {physical, brain, mental, total, physical_raw...}
       return {
-        physical: Math.round(data.final.physical),
-        brain: Math.round(data.final.brain),
-        mental: Math.round(data.final.mental),
-        total: Math.round(data.final.total),
+        physical: Math.round(data.physical),
+        brain: Math.round(data.brain),
+        mental: Math.round(data.mental),
+        total: Math.round(data.total),
         raw: data,
-        voice: data.voice,
-        embedding: data.embedding,
-        source: "ensemble-voice+embedding"
+        source: "lightgbm"
       };
     }
 
     async function scoreWithFallback(userText, acoustic, audioBlob) {
-      // 埋め込み生スコアを取得 (フロントのembeddingモデルがあれば)
-      let embedRaw = null;
-      try {
-        if (isEmbedReady && extractor && defVectors) {
-          const out = await extractor(userText || "特になし", { pooling: "mean", normalize: true });
-          const v = Array.from(out.data);
-          embedRaw = {
-            body: simToCategory(v, defVectors.body),
-            brain: simToCategory(v, defVectors.brain),
-            mental: simToCategory(v, defVectors.mental),
-            healthy: simToCategory(v, defVectors.healthy)
-          };
-        }
-      } catch(e) { console.warn("embed raw failed", e); }
-
+      // まずLightGBMバックエンドを試す
       if (audioBlob) {
         try {
-          statusText.textContent = "声とテキストをアンサンブル分析中...";
-          const backendScores = await scoreFromBackend(audioBlob, userText, embedRaw);
-          console.log("[Ensemble] success", backendScores);
+          statusText.textContent = "疲労度モデルで分析中...";
+          const backendScores = await scoreFromBackend(audioBlob);
+          console.log("[LightGBM] success", backendScores);
           return backendScores;
         } catch (e) {
-          console.warn("[Ensemble] failed, fallback to embedding:", e);
+          console.warn("[LightGBM] failed, fallback to embedding:", e);
         }
       }
+      // フォールバック: 従来の埋め込み+音響ヒューリスティック
       return await scoreFromText(userText, acoustic);
     }
-
-
 
     function pickRecovery(scores) {
       const entries = [
@@ -313,7 +671,7 @@
     function applyScoreUI(scores) {
       document.getElementById("scoreTotalVal").textContent = scores.total;
       if (scores.source === "lightgbm") {
-        document.getElementById("scoreHint").textContent = `アンサンブル推論 (身体:${scores.raw.physical_raw.toFixed(2)} 脳:${scores.raw.brain_raw.toFixed(2)} 精神:${scores.raw.mental_raw.toFixed(2)})`;
+        document.getElementById("scoreHint").textContent = `LightGBM推論 (身体:${scores.raw.physical_raw.toFixed(2)} 脳:${scores.raw.brain_raw.toFixed(2)} 精神:${scores.raw.mental_raw.toFixed(2)})`;
       } else {
         document.getElementById("scoreHint").textContent = `埋め込み推論 (フォールバック)`;
       }
@@ -355,25 +713,68 @@
     // =========================================================
     // STT / LLM / Acoustic
     // =========================================================
+
     async function loadModel() {
       try {
         startLoadCopyRotation();
         updateProgress(8, "8%");
 
-        const { MoonshineForConditionalGeneration, AutoProcessor, AutoTokenizer, env } =
-          await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0");
+        // Transformers.js の動的importをリトライ付きで
+        let transformers = null;
+        const cdnUrls = [
+          "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0",
+          "https://unpkg.com/@huggingface/transformers@3.5.0",
+          "https://cdn.skypack.dev/@huggingface/transformers@3.5.0"
+        ];
+        for (const url of cdnUrls) {
+          try {
+            console.log("Trying transformers from", url);
+            transformers = await import(url);
+            break;
+          } catch (e) {
+            console.warn("Failed to load transformers from", url, e);
+          }
+        }
+        if (!transformers) throw new Error("transformers.js load failed");
+
+        const { MoonshineForConditionalGeneration, AutoProcessor, AutoTokenizer, env } = transformers;
         env.allowLocalModels = false;
         env.useBrowserCache = true;
 
         updateProgress(18, "18%");
-        const embedP = loadEmbedder();
+        // 埋め込みモデルのロードは失敗しても続行できるように
+        let embedP = loadEmbedder().catch(err => {
+          console.warn("Embedder load failed, continuing with heuristic fallback", err);
+          isEmbedReady = false;
+          return null;
+        });
 
         updateProgress(28, "28%");
-        [model, processor, tokenizer] = await Promise.all([
-          MoonshineForConditionalGeneration.from_pretrained(MODEL_ID, { dtype: "fp32", device: "wasm" }),
-          AutoProcessor.from_pretrained(MODEL_ID),
-          AutoTokenizer.from_pretrained(MODEL_ID),
-        ]);
+        try {
+          [model, processor, tokenizer] = await Promise.all([
+            MoonshineForConditionalGeneration.from_pretrained(MODEL_ID, { dtype: "fp32", device: "wasm" }),
+            AutoProcessor.from_pretrained(MODEL_ID),
+            AutoTokenizer.from_pretrained(MODEL_ID),
+          ]);
+        } catch (e) {
+          console.error("Moonshine model load failed", e);
+          // フォールバック: Web Speech APIが使えるかチェック、無ければエラー表示だがUIは進める
+          statusText.textContent = "音声認識モデルの読み込みに失敗、再試行します...";
+          // 1回リトライ
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            [model, processor, tokenizer] = await Promise.all([
+              MoonshineForConditionalGeneration.from_pretrained(MODEL_ID, { dtype: "fp32", device: "wasm" }),
+              AutoProcessor.from_pretrained(MODEL_ID),
+              AutoTokenizer.from_pretrained(MODEL_ID),
+            ]);
+          } catch (e2) {
+            console.error("Retry failed", e2);
+            // 最終フォールバック: モデル無しでもマイクは有効にする
+            model = null;
+          }
+        }
+
         updateProgress(70, "70%");
         await embedP;
         updateProgress(92, "92%");
@@ -388,12 +789,26 @@
         micBtn.classList.remove("opacity-50");
         setMicUI(false);
         updateProgress(5, "5%");
-        speakAI(currentOpening);
+        speakAI(currentOpening, () => {
+          // 最初の挨拶の後は自動録音せず、ユーザーに押してもらう
+          statusText.textContent = "マイクを押して話してください";
+          micBtn.disabled = false;
+          micBtn.classList.remove("opacity-50");
+        });
       } catch (e) {
         console.error(e);
         stopLoadCopyRotation();
-        statusText.textContent = "モデル読み込み失敗";
-        aiPromptText.textContent = "ページを再読み込みしてください";
+        statusText.textContent = "モデル読み込み失敗 - タップで再試行";
+        aiPromptText.innerHTML = "ネットワーク状況によりモデルの読み込みに失敗しました。<br>ページを再読み込みするか、マイクボタンを押して再試行してください。";
+        // 失敗してもマイクは試せるようにする
+        micBtn.disabled = false;
+        micBtn.classList.remove("opacity-50");
+        micBtn.onclick = () => {
+          if (!isModelReady) {
+            statusText.textContent = "再読み込み中...";
+            loadModel();
+          }
+        };
       }
     }
 
@@ -577,11 +992,14 @@
     }
 
     function afterSpeakThenRecord() {
+      // 自動録音を廃止: ユーザーがマイクボタンを押すまで待つ
       setTimeout(() => {
-        if (isModelReady && currentTurn < 2 && !viewResultBtn.classList.contains("hidden") === false) {
-          // still scanning
+        if (isModelReady && currentTurn < 2 && viewResultBtn.classList.contains("hidden")) {
+          statusText.textContent = "AIの返答が終わりました。マイクを押して続けてください";
+          micBtn.disabled = false;
+          micBtn.classList.remove("opacity-50");
+          setMicUI(false);
         }
-        if (isModelReady && currentTurn < 2) startRecording();
       }, POST_TTS_GAP_MS);
     }
 
