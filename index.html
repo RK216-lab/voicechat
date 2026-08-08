@@ -27,6 +27,22 @@
     .material-icons { font-size: 22px; vertical-align: middle; }
     .mic-icon { font-size: 32px !important; color: #ef4444; }
     .stop-icon { font-size: 28px !important; color: #ef4444; }
+    /* タイプライター用カーソル */
+    .typing-cursor::after {
+      content: "▋";
+      animation: blink 0.8s step-end infinite;
+      color: #34d399;
+      margin-left: 1px;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .fade-in { animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body class="bg-slate-200 flex justify-center items-center min-h-screen">
@@ -64,7 +80,7 @@
           <span id="statusText">モデルを準備中...</span>
         </div>
 
-        <h2 id="aiPromptText" class="text-[18px] font-bold text-slate-800 leading-relaxed max-w-[290px]">
+        <h2 id="aiPromptText" class="text-[18px] font-bold text-slate-800 leading-relaxed max-w-[290px] min-h-[3.2em]">
           準備ができたら<br>下のボタンを押してください
         </h2>
 
@@ -83,7 +99,7 @@
         </button>
         <p id="micHint" class="text-xs text-slate-400">モデル読み込み中...</p>
 
-        <button id="viewResultBtn" class="hidden w-full py-3.5 bg-orange-400 hover:bg-orange-500 text-white font-bold rounded-2xl shadow-md">
+        <button id="viewResultBtn" class="hidden w-full py-3.5 bg-orange-400 hover:bg-orange-500 text-white font-bold rounded-2xl shadow-md fade-in">
           スキャン完了！結果を見る
         </button>
       </div>
@@ -95,7 +111,7 @@
         <h2 class="text-slate-700 font-bold text-base">診断結果</h2>
       </div>
 
-      <div class="bg-white rounded-3xl p-5 shadow-sm border border-orange-100/60 text-center space-y-1.5">
+      <div class="bg-white rounded-3xl p-5 shadow-sm border border-orange-100/60 text-center space-y-1.5 fade-in">
         <p class="text-[10px] font-bold text-slate-400 tracking-widest">TODAY'S WELL-BEING</p>
         <div class="flex justify-center items-baseline gap-0.5">
           <span id="scoreTotalVal" class="text-5xl font-black text-emerald-500">--</span>
@@ -121,7 +137,7 @@
         </div>
       </div>
 
-      <div class="bg-white rounded-3xl p-4 shadow-sm border border-orange-100 space-y-2.5">
+      <div class="bg-white rounded-3xl p-4 shadow-sm border border-orange-100 space-y-2.5 fade-in">
         <div class="flex items-center gap-1.5 text-[11px] font-bold text-orange-500">
           <span class="material-icons" style="font-size:16px;color:#f97316">warning</span>
           <span>分析結果</span>
@@ -184,6 +200,7 @@
     // ===================== 設定 =====================
     const BACKEND_URL = "https://voicechat-gz4j.onrender.com";
     const MODEL_ID = "wmoto-ai/moonshine-tiny-ja-ONNX";
+    const KOKORO_VOICE = "jf_alpha"; // 日本語女性・自然
 
     // ===================== 状態 =====================
     let model = null, processor = null, tokenizer = null;
@@ -197,29 +214,30 @@
     let currentTurn = 0; // 0→1→2 で終了
     let allUserTexts = [];
     let lastAcoustic = {};
+    let isSpeaking = false;
+    let typewriterTimer = null;
 
     const SILENCE_THRESHOLD = 0.013;
     const SILENCE_MS = 1600;
 
-    // 会話用の固定プロンプト（3ターン専用）
-    // 会話用プロンプト（自然な話し言葉）
-const TURN_PROMPTS = [
-  // ① 今日の出来事・調子
-  `あなたは優しくて親しみやすいアシスタントです。
+    // 会話用プロンプト（自然な話し言葉・短め）
+    const TURN_PROMPTS = [
+      // ① 今日の出来事・調子
+      `あなたは優しくて親しみやすいアシスタントです。
 ユーザーに今日の出来事や体調・気分を自然に聞いてください。
 「今日はどんな一日でしたか？」「今の調子はどうですか？」のような柔らかい聞き方で。
 返答は必ず1〜2文、40文字以内。質問は1つだけ。丁寧すぎず、少し友達に近い距離感で話してください。`,
 
-  // ② 共感＋深掘り
-  `ユーザーの話にしっかり共感してから、もう少し詳しく知りたいポイントを1つだけ優しく聞いてください。
+      // ② 共感＋深掘り
+      `ユーザーの話にしっかり共感してから、もう少し詳しく知りたいポイントを1つだけ優しく聞いてください。
 「そうだったんですね」「それは大変でしたね」など共感の言葉を先に置いてください。
 返答は1〜2文、50文字以内。質問は1つだけにしてください。`,
 
-  // ③ まとめ＋ありがとう
-  `これまでの話を短くまとめて、「話してくれてありがとう」と伝えてください。
+      // ③ まとめ＋ありがとう
+      `これまでの話を短くまとめて、「話してくれてありがとう」と伝えてください。
 診断結果には触れないでください。
 自然な話し言葉で、40文字以内にしてください。`
-];
+    ];
 
     // DOM
     const statusText    = document.getElementById("statusText");
@@ -245,6 +263,32 @@ const TURN_PROMPTS = [
       }
     }
 
+    // ===================== タイプライター効果 =====================
+    function typeWriter(text, onComplete) {
+      if (typewriterTimer) clearTimeout(typewriterTimer);
+      aiPromptText.classList.add("typing-cursor");
+      aiPromptText.innerHTML = "";
+      let i = 0;
+      const speed = 28; // ms per char（自然な速さ）
+
+      function type() {
+        if (i < text.length) {
+          const char = text[i];
+          if (char === "\n") {
+            aiPromptText.innerHTML += "<br>";
+          } else {
+            aiPromptText.innerHTML += char;
+          }
+          i++;
+          typewriterTimer = setTimeout(type, speed + (Math.random() * 12 - 6));
+        } else {
+          aiPromptText.classList.remove("typing-cursor");
+          if (onComplete) onComplete();
+        }
+      }
+      type();
+    }
+
     // ===================== モデル =====================
     async function loadModel() {
       try {
@@ -263,11 +307,12 @@ const TURN_PROMPTS = [
 
         isModelReady = true;
         statusText.textContent = "準備完了";
-        aiPromptText.innerHTML = "こんにちは！<br>今日の調子はどうですか？";
-        micBtn.disabled = false;
-        micBtn.classList.remove("opacity-50");
-        setMicUI(false);
-        updateProgress(5, "5%");
+        typeWriter("こんにちは！\n今日の調子はどうですか？", () => {
+          micBtn.disabled = false;
+          micBtn.classList.remove("opacity-50");
+          setMicUI(false);
+          updateProgress(5, "5%");
+        });
       } catch (e) {
         console.error(e);
         statusText.textContent = "モデル読み込み失敗";
@@ -300,12 +345,56 @@ const TURN_PROMPTS = [
       return tokenizer.decode(outputs[0], { skip_special_tokens: true }).trim() || "（聞き取れませんでした）";
     }
 
-    // ===================== LLM呼び出し =====================
+    // ===================== LLM呼び出し（ストリーミング対応） =====================
+    async function callLLMStream(messages, onChunk, onDone) {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, stream: true, max_tokens: 100 }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || "LLM error");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") continue;
+          try {
+            const json = JSON.parse(data);
+            const delta = json.choices?.[0]?.delta?.content || "";
+            if (delta) {
+              fullText += delta;
+              if (onChunk) onChunk(fullText);
+            }
+          } catch {}
+        }
+      }
+      if (onDone) onDone(fullText);
+      return fullText;
+    }
+
+    // 非ストリーム版（診断用など）
     async function callLLM(messages) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, stream: false }),
       });
       const data = await res.json();
       return data.text || data.choices?.[0]?.message?.content || "応答を取得できませんでした";
@@ -323,7 +412,7 @@ const TURN_PROMPTS = [
 
     // ===================== 録音 =====================
     async function startRecording() {
-      if (!isModelReady || isRecording) return;
+      if (!isModelReady || isRecording || isSpeaking) return;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
@@ -410,50 +499,72 @@ const TURN_PROMPTS = [
             { role: "system", content: TURN_PROMPTS[currentTurn - 1] },
             { role: "user", content: userText }
           ];
-          const reply = await callLLM(messages);
-          aiPromptText.innerHTML = reply.replace(/\n/g, "<br>");
 
-          speakAI(reply, () => {
-            setTimeout(() => startRecording(), 600);
+          // ストリーミング＋タイプライター
+          aiPromptText.classList.add("typing-cursor");
+          aiPromptText.innerHTML = "";
+
+          const reply = await callLLMStream(
+            messages,
+            (partial) => {
+              aiPromptText.innerHTML = partial.replace(/\n/g, "<br>");
+            },
+            null
+          );
+
+          aiPromptText.classList.remove("typing-cursor");
+          // 最終的に整った表示
+          typeWriter(reply, () => {
+            speakAI(reply, () => {
+              // TTS終了後に自動で次の録音を開始
+              setTimeout(() => {
+                if (currentTurn < 3) startRecording();
+              }, 500);
+            });
           });
         } else {
           // 最終ターン（③）＋診断生成
           statusText.textContent = "診断を生成中...";
           updateProgress(80, "80%");
 
-          // まず③のまとめ発話
+          // まず③のまとめ発話（ストリーム）
           const summaryMessages = [
             { role: "system", content: TURN_PROMPTS[2] },
             { role: "user", content: allUserTexts.join(" / ") }
           ];
-          const summary = await callLLM(summaryMessages);
-          aiPromptText.innerHTML = summary.replace(/\n/g, "<br>");
+
+          aiPromptText.classList.add("typing-cursor");
+          aiPromptText.innerHTML = "";
+          const summary = await callLLMStream(summaryMessages, (partial) => {
+            aiPromptText.innerHTML = partial.replace(/\n/g, "<br>");
+          });
+          aiPromptText.classList.remove("typing-cursor");
 
           // OpenSmile結果を待つ
           lastAcoustic = await acousticP;
 
-          // 診断用プロンプト（OpenSmile + 文字起こし）
+          // 診断用プロンプト
           const featureSummary = summarizeAcoustic(lastAcoustic);
           const diagnosisMessages = [
-  {
-    role: "system",
-    content: `あなたは音声から疲労を分析する優しいアドバイザーです。
+            {
+              role: "system",
+              content: `あなたは音声から疲労を分析する優しいアドバイザーです。
 音響特徴とユーザーの発言を参考に、ユーザーに向けたアドバイスを書いてください。
 
 必ず次の形式だけで出力してください（前置きや説明は禁止）：
 タイトル：〇〇な疲れ
 詳細：ユーザーに語りかける形で、3文程度の具体的で優しいアドバイス。
 「〜かもしれません」「〜してみてください」など、押しつけがましくない表現を使ってください。`
-  },
-  {
-    role: "user",
-    content: `【音響特徴の要約】
+            },
+            {
+              role: "user",
+              content: `【音響特徴の要約】
 ${featureSummary}
 
 【ユーザーの発言】
 ${allUserTexts.join("\n")}`
-  }
-];
+            }
+          ];
 
           const diagnosis = await callLLM(diagnosisMessages);
 
@@ -466,7 +577,7 @@ ${allUserTexts.join("\n")}`
             titleLine.replace(/タイトル[：:]/, "").trim();
           document.getElementById("fatigueDetailText").textContent = detail || diagnosis;
 
-          // 簡易スコア（後でLightGBMに置き換え）
+          // 簡易スコア
           const scores = heuristicScores(lastAcoustic);
           document.getElementById("scoreTotalVal").textContent = scores.total;
           document.getElementById("scoreBrainVal").innerHTML = `${scores.brain}<span class="text-xs font-normal">%</span>`;
@@ -478,6 +589,7 @@ ${allUserTexts.join("\n")}`
           micBtn.classList.add("hidden");
           viewResultBtn.classList.remove("hidden");
 
+          // まとめを話してから結果へ誘導
           speakAI(summary + "。結果をご覧ください。");
         }
       } catch (e) {
@@ -485,6 +597,7 @@ ${allUserTexts.join("\n")}`
         statusText.textContent = "エラーが発生しました。もう一度どうぞ";
         setMicUI(false);
         isRecording = false;
+        aiPromptText.classList.remove("typing-cursor");
       }
     }
 
@@ -500,7 +613,6 @@ ${allUserTexts.join("\n")}`
       for (const k of keys) {
         if (f[k] !== undefined) parts.push(`${k}: ${Number(f[k]).toFixed(3)}`);
       }
-      // 代表的なものを少し多めに
       const extras = Object.keys(f).filter(k => k.includes("loudness") || k.includes("F0") || k.includes("jitter")).slice(0, 8);
       for (const k of extras) {
         if (!parts.find(p => p.startsWith(k))) parts.push(`${k}: ${Number(f[k]).toFixed(3)}`);
@@ -517,71 +629,66 @@ ${allUserTexts.join("\n")}`
       return { physical, brain, mental, total };
     }
 
-    // ===================== TTS（強化版） =====================
-    let voicesReady = false;
-    function ensureVoices() {
-      return new Promise(resolve => {
-        const voices = speechSynthesis.getVoices();
-        if (voices.length > 0) {
-          voicesReady = true;
-          resolve(voices);
-          return;
-        }
-        speechSynthesis.onvoiceschanged = () => {
-          voicesReady = true;
-          resolve(speechSynthesis.getVoices());
+    // ===================== TTS（Kokoro優先・Edgeフォールバック） =====================
+    async function speakAI(text, onEnd) {
+      if (!text || !text.trim()) {
+        if (onEnd) onEnd();
+        return;
+      }
+
+      isSpeaking = true;
+      const prevStatus = statusText.textContent;
+      statusText.textContent = "AIが話しています...";
+      micBtn.disabled = true;
+      micBtn.classList.add("opacity-50");
+
+      try {
+        // Kokoro (または Edge フォールバック) をバックエンド経由で呼び出し
+        const url = `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=${KOKORO_VOICE}`;
+        const res = await fetch(url);
+
+        if (!res.ok) throw new Error("TTS failed");
+
+        const blob = await res.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          statusText.textContent = prevStatus;
+          isSpeaking = false;
+          micBtn.disabled = false;
+          micBtn.classList.remove("opacity-50");
+          if (onEnd) onEnd();
         };
-        // タイムアウト保険
-        setTimeout(() => resolve(speechSynthesis.getVoices()), 1500);
-      });
+        audio.onerror = () => {
+          URL.revokeObjectURL(audioUrl);
+          statusText.textContent = prevStatus;
+          isSpeaking = false;
+          micBtn.disabled = false;
+          micBtn.classList.remove("opacity-50");
+          if (onEnd) onEnd();
+        };
+
+        await audio.play();
+      } catch (e) {
+        console.warn("TTS失敗、ブラウザTTSにフォールバック", e);
+        statusText.textContent = prevStatus;
+        isSpeaking = false;
+        micBtn.disabled = false;
+        micBtn.classList.remove("opacity-50");
+        // フォールバック（ブラウザ標準）
+        if (window.speechSynthesis) {
+          const u = new SpeechSynthesisUtterance(text);
+          u.lang = "ja-JP";
+          u.rate = 1.05;
+          u.onend = () => { if (onEnd) onEnd(); };
+          speechSynthesis.speak(u);
+        } else if (onEnd) {
+          onEnd();
+        }
+      }
     }
-
-    // ===================== 確実に動くTTS（Render Edge TTS） =====================
-async function speakAI(text, onEnd) {
-  if (!text || !text.trim()) {
-    if (onEnd) onEnd();
-    return;
-  }
-
-  const prevStatus = statusText.textContent;
-  statusText.textContent = "AIが話しています...";
-
-  try {
-    const url = `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=ja-JP-NanamiNeural`;
-    const res = await fetch(url);
-
-    if (!res.ok) throw new Error("TTS failed");
-
-    const blob = await res.blob();
-    const audioUrl = URL.createObjectURL(blob);
-    const audio = new Audio(audioUrl);
-
-    audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
-      statusText.textContent = prevStatus;
-      if (onEnd) onEnd();
-    };
-    audio.onerror = () => {
-      URL.revokeObjectURL(audioUrl);
-      statusText.textContent = prevStatus;
-      if (onEnd) onEnd();
-    };
-
-    await audio.play();
-  } catch (e) {
-    console.warn("外部TTS失敗", e);
-    statusText.textContent = prevStatus;
-    // フォールバック（一応）
-    if (window.speechSynthesis) {
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "ja-JP";
-      u.onend = () => { if (onEnd) onEnd(); };
-      speechSynthesis.speak(u);
-    } else if (onEnd) {
-      onEnd();
-    }
-  }
-}
 
     function updateProgress(p, label) {
       progressBar.style.width = p + "%";
@@ -590,7 +697,7 @@ async function speakAI(text, onEnd) {
 
     // ===================== イベント =====================
     micBtn.addEventListener("click", () => {
-      if (!isModelReady) return;
+      if (!isModelReady || isSpeaking) return;
       if (isRecording) stopRecording();
       else startRecording();
     });
@@ -601,7 +708,6 @@ async function speakAI(text, onEnd) {
     });
 
     // 起動
-    ensureVoices();
     loadModel();
   </script>
 </body>
