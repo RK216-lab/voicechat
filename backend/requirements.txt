@@ -3,3 +3,6 @@ uvicorn
 opensmile
 python-multipart
 edge-tts
+lightgbm
+numpy
+scikit-learn

@@ -227,6 +227,7 @@
     let waveRaf = null;
     let currentTurn = 0;
     let allUserTexts = [];
+    let lastAudioBlob = null; // LightGBM用に最後の音声を保持
     let conversationLog = [];
     let lastAcoustic = {};
     let currentOpening = "";
@@ -577,6 +578,48 @@
       return embedScores;
     }
 
+
+    // ===== LightGBMバックエンド版スコア取得 (新規) =====
+    async function scoreFromBackend(audioBlob) {
+      if (!audioBlob) throw new Error("no audio blob");
+      const form = new FormData();
+      form.append("file", audioBlob, "recording.webm");
+      const res = await fetch(`${BACKEND_URL}/predict-fatigue`, {
+        method: "POST",
+        body: form
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error("backend predict failed: " + t);
+      }
+      const data = await res.json();
+      // data: {physical, brain, mental, total, physical_raw...}
+      return {
+        physical: Math.round(data.physical),
+        brain: Math.round(data.brain),
+        mental: Math.round(data.mental),
+        total: Math.round(data.total),
+        raw: data,
+        source: "lightgbm"
+      };
+    }
+
+    async function scoreWithFallback(userText, acoustic, audioBlob) {
+      // まずLightGBMバックエンドを試す
+      if (audioBlob) {
+        try {
+          statusText.textContent = "疲労度モデルで分析中...";
+          const backendScores = await scoreFromBackend(audioBlob);
+          console.log("[LightGBM] success", backendScores);
+          return backendScores;
+        } catch (e) {
+          console.warn("[LightGBM] failed, fallback to embedding:", e);
+        }
+      }
+      // フォールバック: 従来の埋め込み+音響ヒューリスティック
+      return await scoreFromText(userText, acoustic);
+    }
+
     function pickRecovery(scores) {
       const entries = [
         ["body", scores.physical],
@@ -627,6 +670,11 @@
 
     function applyScoreUI(scores) {
       document.getElementById("scoreTotalVal").textContent = scores.total;
+      if (scores.source === "lightgbm") {
+        document.getElementById("scoreHint").textContent = `LightGBM推論 (身体:${scores.raw.physical_raw.toFixed(2)} 脳:${scores.raw.brain_raw.toFixed(2)} 精神:${scores.raw.mental_raw.toFixed(2)})`;
+      } else {
+        document.getElementById("scoreHint").textContent = `埋め込み推論 (フォールバック)`;
+      }
       document.getElementById("scoreBrainVal").innerHTML = `${scores.brain}<span class="text-xs font-normal">%</span>`;
       document.getElementById("scoreMentalVal").innerHTML = `${scores.mental}<span class="text-xs font-normal">%</span>`;
       document.getElementById("scorePhysicalVal").innerHTML = `${scores.physical}<span class="text-xs font-normal">%</span>`;
@@ -901,6 +949,7 @@
     async function processTurn() {
       try {
         const blob = new Blob(audioChunks, { type: "audio/webm" });
+        lastAudioBlob = blob;
         statusText.textContent = "文字起こし中...";
         const float32 = await blobToFloat32(blob);
         const userText = await transcribe(float32);
@@ -938,7 +987,7 @@
           updateProgress(85, "85%");
 
           const joined = allUserTexts.join("。");
-          const scores = await scoreFromText(joined, lastAcoustic);
+          const scores = await scoreWithFallback(joined, lastAcoustic, lastAudioBlob);
           const recovery = pickRecovery(scores);
 
           const diagnosisMessages = [
