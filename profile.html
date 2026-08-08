@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>マイページ - Restee</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="profile">
+    <div class="phone-bezel">
+        <div class="wave-bg"></div><div class="wave-bg-2"></div>
+        <header class="p-6 pb-2 flex justify-between items-center relative z-10 w-full pt-8">
+            <h1 class="text-xl font-bold text-gray-800">マイページ</h1>
+            <button class="w-10 h-10 bg-white/70 rounded-full flex items-center justify-center shadow-sm"><span class="material-icons-outlined text-gray-500 text-2xl">settings</span></button>
+        </header>
+        <main class="scrollable-content px-6 flex flex-col items-center relative z-10 w-full pt-4">
+            <div class="w-24 h-24 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white mb-4 relative z-10">
+                <img alt="Profile" src="https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&q=80&w=200" class="w-full h-full object-cover">
+            </div>
+            <h2 class="text-xl font-bold text-gray-800 relative z-10 tracking-widest mt-1">Rimi</h2>
+            <div class="w-full mt-6 mb-8 relative z-10">
+                <div class="flex justify-between items-end mb-2"><span class="text-[10px] font-bold text-gray-600">レベル進捗</span><span class="text-[10px] font-bold text-gray-400">次まで 350 pts</span></div>
+                <div class="w-full bg-white/30 h-2.5 rounded-full overflow-hidden backdrop-blur-sm border border-white/50"><div class="bg-gradient-to-r from-green-300 to-green-500 h-full w-3/4 rounded-full shadow-[0_0_10px_rgba(74,222,128,0.5)]"></div></div>
+            </div>
+
+            <div id="latest-score-card" class="wavy-card w-full p-5 mb-6 shadow-sm">
+                <h3 class="text-sm font-bold text-gray-700 mb-3">最新のウェルビーイング</h3>
+                <div id="latest-score-content" class="text-sm text-gray-500">まだスキャン履歴がありません。スキャンしてみましょう。</div>
+            </div>
+
+            <div id="history-list" class="w-full space-y-3 mb-8"></div>
+
+            <div class="wavy-card w-full shadow-sm overflow-hidden border border-white/60 mb-8 relative z-10">
+                <div class="flex items-center px-5 py-4 border-b border-white/30 cursor-pointer hover:bg-white/40 transition"><span class="material-icons-outlined text-green-500 mr-4">bookmark_border</span><span class="flex-1 font-bold text-sm text-gray-700">お気に入り記事</span><span class="material-icons-outlined text-gray-400 text-sm">chevron_right</span></div>
+                <div class="flex items-center px-5 py-4 border-b border-white/30 cursor-pointer hover:bg-white/40 transition"><span class="material-icons-outlined text-orange-400 mr-4">emoji_events</span><span class="flex-1 font-bold text-sm text-gray-700">獲得したバッジ</span><span class="material-icons-outlined text-gray-400 text-sm">chevron_right</span></div>
+                <div class="flex items-center px-5 py-4 cursor-pointer hover:bg-white/40 transition"><span class="material-icons-outlined text-blue-500 mr-4">bar_chart</span><span class="flex-1 font-bold text-sm text-gray-700">休養統計レポート</span><span class="material-icons-outlined text-gray-400 text-sm">chevron_right</span></div>
+            </div>
+            <div class="wavy-card w-full shadow-sm border border-white/60 mb-8 relative z-10 shrink-0 overflow-hidden">
+                <div class="flex items-center px-5 py-4 border-b border-white/30 cursor-pointer hover:bg-white/40 transition"><span class="material-icons-outlined text-teal-500 mr-4">track_changes</span><span class="flex-1 font-bold text-sm text-gray-700">休養習慣管理</span><span class="material-icons-outlined text-gray-400 text-sm">chevron_right</span></div>
+                <div class="flex items-center px-5 py-4 cursor-pointer hover:bg-white/40 transition"><span class="material-icons-outlined text-purple-500 mr-4">notifications_active</span><span class="flex-1 font-bold text-sm text-gray-700">通知の設定</span><span class="material-icons-outlined text-gray-400 text-sm">chevron_right</span></div>
+            </div>
+
+            <button onclick="localStorage.clear(); location.reload();" class="text-xs text-gray-400 underline mb-10">データをリセット</button>
+        </main>
+        <nav class="global-nav">
+            <a href="home.html" class="flex flex-col items-center transition text-gray-400 hover:text-green-500"><span class="material-icons-outlined text-3xl">home</span><span class="text-[10px] mt-1">ホーム</span></a>
+            <a href="learn.html" class="flex flex-col items-center transition text-gray-400 hover:text-green-500"><span class="material-icons-outlined text-3xl">import_contacts</span><span class="text-[10px] mt-1">知る</span></a>
+            <a href="scan.html" class="flex flex-col items-center -mt-10 group"><div class="scan-button-gradient w-16 h-16 rounded-full flex items-center justify-center text-white border-4 border-white relative shadow-lg"><span class="material-icons-outlined text-3xl transform scale-110 group-hover:scale-125 transition duration-300">waves</span></div><span class="text-[10px] mt-1 font-bold text-gray-400 group-hover:text-green-500 transition">スキャン</span></a>
+            <a href="care.html" class="flex flex-col items-center transition text-gray-400 hover:text-green-500"><span class="material-icons-outlined text-3xl">favorite_border</span><span class="text-[10px] mt-1">ケア</span></a>
+            <a href="profile.html" class="flex flex-col items-center transition text-green-500 font-bold"><span class="material-icons-outlined text-3xl">person_outline</span><span class="text-[10px] mt-1">私</span></a>
+        </nav>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded',()=>{
+        const last = window.ResteeApp.loadLastScan();
+        const el = document.getElementById('latest-score-content');
+        if(last && el){
+          const f = last.final||last;
+          el.innerHTML = `<div class="flex items-baseline gap-1 mb-2"><span class="text-3xl font-black text-emerald-500">${Math.round(f.total||0)}</span><span class="text-sm text-gray-400">/100</span><span class="ml-2 text-xs text-gray-500">${last.dateStr||''}</span></div><div class="flex gap-2 text-[11px]"><span class="px-2 py-1 bg-blue-50 rounded-full">脳 ${Math.round(f.brain||0)}%</span><span class="px-2 py-1 bg-green-50 rounded-full">精神 ${Math.round(f.mental||0)}%</span><span class="px-2 py-1 bg-orange-50 rounded-full">身体 ${Math.round(f.physical||0)}%</span></div><p class="mt-3 text-xs text-gray-600">${last.fatigueTitle||''} - ${last.fatigueDetail||''}</p>`;
+        }
+      });
+    </script>
+</body>
+</html>
