@@ -579,11 +579,13 @@
     }
 
 
-    // ===== LightGBMバックエンド版スコア取得 (新規) =====
-    async function scoreFromBackend(audioBlob) {
+
+    // ===== LightGBMバックエンド版スコア取得 (91次元対応) =====
+    async function scoreFromBackend(audioBlob, text) {
       if (!audioBlob) throw new Error("no audio blob");
       const form = new FormData();
       form.append("file", audioBlob, "recording.webm");
+      form.append("text", text || "");
       const res = await fetch(`${BACKEND_URL}/predict-fatigue`, {
         method: "POST",
         body: form
@@ -593,32 +595,30 @@
         throw new Error("backend predict failed: " + t);
       }
       const data = await res.json();
-      // data: {physical, brain, mental, total, physical_raw...}
       return {
         physical: Math.round(data.physical),
         brain: Math.round(data.brain),
         mental: Math.round(data.mental),
         total: Math.round(data.total),
         raw: data,
-        source: "lightgbm"
+        source: "lightgbm-91d"
       };
     }
 
     async function scoreWithFallback(userText, acoustic, audioBlob) {
-      // まずLightGBMバックエンドを試す
       if (audioBlob) {
         try {
-          statusText.textContent = "疲労度モデルで分析中...";
-          const backendScores = await scoreFromBackend(audioBlob);
-          console.log("[LightGBM] success", backendScores);
+          statusText.textContent = "疲労度モデル(91次元)で分析中...";
+          const backendScores = await scoreFromBackend(audioBlob, userText);
+          console.log("[LightGBM-91D] success", backendScores);
           return backendScores;
         } catch (e) {
-          console.warn("[LightGBM] failed, fallback to embedding:", e);
+          console.warn("[LightGBM-91D] failed, fallback to embedding:", e);
         }
       }
-      // フォールバック: 従来の埋め込み+音響ヒューリスティック
       return await scoreFromText(userText, acoustic);
     }
+
 
     function pickRecovery(scores) {
       const entries = [
