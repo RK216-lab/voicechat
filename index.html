@@ -202,14 +202,24 @@
     const SILENCE_MS = 1600;
 
     // 会話用の固定プロンプト（3ターン専用）
-    const TURN_PROMPTS = [
-      // ターン1: 出来事・調子を尋ねる
-      "あなたは優しいAIアシスタントです。ユーザーの今日の出来事や体調・気分を優しく尋ねてください。返答は40文字以内で短く。質問は1つだけ。",
-      // ターン2: 共感＋深掘り
-      "ユーザーの話に共感しつつ、もう少し詳しく聞きたいポイントを1つだけ優しく尋ねてください。返答は50文字以内。",
-      // ターン3: まとめ＋ありがとう
-      "これまでの話を短くまとめ、「話してくれてありがとう」と伝えてください。診断には触れないでください。40文字以内。"
-    ];
+    // 会話用プロンプト（自然な話し言葉）
+const TURN_PROMPTS = [
+  // ① 今日の出来事・調子
+  `あなたは優しくて親しみやすいアシスタントです。
+ユーザーに今日の出来事や体調・気分を自然に聞いてください。
+「今日はどんな一日でしたか？」「今の調子はどうですか？」のような柔らかい聞き方で。
+返答は必ず1〜2文、40文字以内。質問は1つだけ。丁寧すぎず、少し友達に近い距離感で話してください。`,
+
+  // ② 共感＋深掘り
+  `ユーザーの話にしっかり共感してから、もう少し詳しく知りたいポイントを1つだけ優しく聞いてください。
+「そうだったんですね」「それは大変でしたね」など共感の言葉を先に置いてください。
+返答は1〜2文、50文字以内。質問は1つだけにしてください。`,
+
+  // ③ まとめ＋ありがとう
+  `これまでの話を短くまとめて、「話してくれてありがとう」と伝えてください。
+診断結果には触れないでください。
+自然な話し言葉で、40文字以内にしてください。`
+];
 
     // DOM
     const statusText    = document.getElementById("statusText");
@@ -425,19 +435,25 @@
           // 診断用プロンプト（OpenSmile + 文字起こし）
           const featureSummary = summarizeAcoustic(lastAcoustic);
           const diagnosisMessages = [
-            {
-              role: "system",
-              content: `あなたは音声疲労分析の専門家です。
-以下の音響特徴量の要約とユーザーの発言から、疲労状態を分析してください。
-必ず次の形式で出力してください（余計な前置き禁止）：
-タイトル：〇〇型の疲れ
-詳細：3文程度で具体的な分析と優しいアドバイス`
-            },
-            {
-              role: "user",
-              content: `【音響特徴】\n${featureSummary}\n\n【ユーザーの発言】\n${allUserTexts.join("\n")}`
-            }
-          ];
+  {
+    role: "system",
+    content: `あなたは音声から疲労を分析する優しいアドバイザーです。
+音響特徴とユーザーの発言を参考に、ユーザーに向けたアドバイスを書いてください。
+
+必ず次の形式だけで出力してください（前置きや説明は禁止）：
+タイトル：〇〇な疲れ
+詳細：ユーザーに語りかける形で、3文程度の具体的で優しいアドバイス。
+「〜かもしれません」「〜してみてください」など、押しつけがましくない表現を使ってください。`
+  },
+  {
+    role: "user",
+    content: `【音響特徴の要約】
+${featureSummary}
+
+【ユーザーの発言】
+${allUserTexts.join("\n")}`
+  }
+];
 
           const diagnosis = await callLLM(diagnosisMessages);
 
@@ -520,32 +536,52 @@
       });
     }
 
-    async function speakAI(text, onEnd) {
-      if (!window.speechSynthesis) {
-        if (onEnd) onEnd();
-        return;
-      }
-      speechSynthesis.cancel();
+    // ===================== 確実に動くTTS（Render Edge TTS） =====================
+async function speakAI(text, onEnd) {
+  if (!text || !text.trim()) {
+    if (onEnd) onEnd();
+    return;
+  }
 
-      const voices = await ensureVoices();
+  const prevStatus = statusText.textContent;
+  statusText.textContent = "AIが話しています...";
+
+  try {
+    const url = `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=ja-JP-NanamiNeural`;
+    const res = await fetch(url);
+
+    if (!res.ok) throw new Error("TTS failed");
+
+    const blob = await res.blob();
+    const audioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrl);
+
+    audio.onended = () => {
+      URL.revokeObjectURL(audioUrl);
+      statusText.textContent = prevStatus;
+      if (onEnd) onEnd();
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(audioUrl);
+      statusText.textContent = prevStatus;
+      if (onEnd) onEnd();
+    };
+
+    await audio.play();
+  } catch (e) {
+    console.warn("外部TTS失敗", e);
+    statusText.textContent = prevStatus;
+    // フォールバック（一応）
+    if (window.speechSynthesis) {
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "ja-JP";
-      u.rate = 1.05;
-      u.pitch = 1.0;
-
-      const preferred = voices.find(v =>
-        v.lang.startsWith("ja") &&
-        (v.name.includes("Google") || v.name.includes("Microsoft") ||
-         v.name.includes("Kyoko") || v.name.includes("Otoya") ||
-         v.name.includes("Nanami") || v.name.includes("Haruka"))
-      ) || voices.find(v => v.lang.startsWith("ja"));
-
-      if (preferred) u.voice = preferred;
       u.onend = () => { if (onEnd) onEnd(); };
-      u.onerror = () => { if (onEnd) onEnd(); };
-
       speechSynthesis.speak(u);
+    } else if (onEnd) {
+      onEnd();
     }
+  }
+}
 
     function updateProgress(p, label) {
       progressBar.style.width = p + "%";
