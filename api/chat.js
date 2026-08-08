@@ -14,7 +14,7 @@ export default async function handler(req) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant', 
+        model: 'qwen/qwen3.6-27b', 
         messages: body.messages,
         temperature: 0.7,
         max_tokens: 300
