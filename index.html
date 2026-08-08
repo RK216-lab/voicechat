@@ -86,9 +86,9 @@
       </div>
 
       <div class="flex-1 flex flex-col justify-center items-center text-center px-3 space-y-5 min-h-0">
-        <div class="inline-flex items-center gap-2 bg-white/85 backdrop-blur px-4 py-1.5 rounded-full text-xs text-slate-600 shadow-sm max-w-[95%]">
+        <div class="inline-flex items-center gap-2 bg-white/85 backdrop-blur px-4 py-1.5 rounded-full text-xs text-slate-600 shadow-sm max-w-full">
           <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-          <span id="statusText" class="truncate">モデルを準備中...</span>
+          <span id="statusText" class="whitespace-nowrap">モデルを準備中...</span>
         </div>
         <h2 id="aiPromptText" class="text-[17px] font-bold text-slate-800 leading-relaxed max-w-[300px] min-h-[3.5em]">
           準備ができたら<br>下のボタンを押してください
@@ -561,12 +561,12 @@
       }
 
 
-      // === 疲労語彙ブースト ===
+      // === 疲労語彙ブースト (「めっちゃ疲れてるのに低スコア」対策) ===
       const fatigueBoostKeywords = ["疲れ","疲れた","だるい","眠い","しんどい","つかれ","凝っ","重い","肩","首","頭痛","倦怠","やる気","集中でき"];
       const hasFatigueWord = fatigueBoostKeywords.some(kw => (userText||"").includes(kw));
-      const strongFatigue = ["めっちゃ疲れ","すごく疲れ","死ぬほど疲れ","クタクタ","ヘトヘト","全然集中でき","首から","肩が"].some(kw => (userText||"").includes(kw));
+      const strongFatigue = ["めっちゃ","すごく","死ぬほど","クタクタ","ヘトヘト","全然","首から","肩が","重いです"].some(kw => (userText||"").includes(kw));
       if (hasFatigueWord) {
-        const boostVal = strongFatigue ? 28 : 15;
+        const boostVal = strongFatigue ? 32 : 18;
         embedScores.physical = Math.min(93, embedScores.physical + boostVal);
         embedScores.brain = Math.min(93, embedScores.brain + Math.round(boostVal*0.8));
         embedScores.mental = Math.min(93, embedScores.mental + Math.round(boostVal*0.9));
@@ -594,7 +594,107 @@
 
 
     // ===== LightGBMバックエンド版スコア取得 (新規) =====
+    async function scoreFromBackend(audioBlob) {
+      if (!audioBlob) throw new Error("no audio blob");
+      const form = new FormData();
+      form.append("file", audioBlob, "recording.webm");
+      const res = await fetch(`${BACKEND_URL}/predict-fatigue`, {
+        method: "POST",
+        body: form
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error("backend predict failed: " + t);
+      }
+      const data = await res.json();
+      // data: {physical, brain, mental, total, physical_raw...}
+      return {
+        physical: Math.round(data.physical),
+        brain: Math.round(data.brain),
+        mental: Math.round(data.mental),
+        total: Math.round(data.total),
+        raw: data,
+        source: "lightgbm"
+      };
+    }
 
+
+
+
+    // ===== LightGBM + Embedding アンサンブル =====
+    async function scoreFromBackend(audioBlob, text) {
+      if (!audioBlob) throw new Error("no audio blob");
+      const form = new FormData();
+      form.append("file", audioBlob, "recording.webm");
+      form.append("text", text || "");
+      // 埋め込み生値があれば送る (フロントで計算済みの場合)
+      if (window.lastEmbedRaw) {
+        const er = window.lastEmbedRaw;
+        if (er.body !== undefined) form.append("sim_body", String(er.body));
+        if (er.brain !== undefined) form.append("sim_brain", String(er.brain));
+        if (er.mental !== undefined) form.append("sim_mental", String(er.mental));
+        if (er.healthy !== undefined) form.append("sim_healthy", String(er.healthy));
+      }
+      const res = await fetch(`${BACKEND_URL}/predict-fatigue`, {
+        method: "POST",
+        body: form
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error("backend failed: " + t);
+      }
+      const data = await res.json();
+      if (data.final) {
+        return {
+          physical: Math.round(data.final.physical),
+          brain: Math.round(data.final.brain),
+          mental: Math.round(data.final.mental),
+          total: Math.round(data.final.total),
+          raw: data,
+          source: "ensemble"
+        };
+      } else {
+        return {
+          physical: Math.round(data.physical),
+          brain: Math.round(data.brain),
+          mental: Math.round(data.mental),
+          total: Math.round(data.total),
+          raw: data,
+          source: "lightgbm"
+        };
+      }
+    }
+
+    async function scoreWithFallback(userText, acoustic, audioBlob) {
+      // 埋め込み生スコアを保持
+      try {
+        if (isEmbedReady && extractor && defVectors) {
+          const out = await extractor(userText || "特になし", { pooling: "mean", normalize: true });
+          const v = Array.from(out.data);
+          window.lastEmbedRaw = {
+            body: simToCategory(v, defVectors.body),
+            brain: simToCategory(v, defVectors.brain),
+            mental: simToCategory(v, defVectors.mental),
+            healthy: simToCategory(v, defVectors.healthy)
+          };
+        }
+      } catch(e) { console.warn("embed raw failed", e); }
+
+      if (audioBlob) {
+        try {
+          statusText.textContent = "分析中...";
+          const backendScores = await scoreFromBackend(audioBlob, userText);
+          console.log("[Ensemble] success", backendScores);
+          return backendScores;
+        } catch (e) {
+          console.warn("[Ensemble] failed, fallback to embedding:", e);
+          if (String(e).includes("Failed to fetch") || String(e).includes("CORS")) {
+            statusText.textContent = "オフライン分析中...";
+          }
+        }
+      }
+      return await scoreFromText(userText, acoustic);
+    }
 
 
     function pickRecovery(scores) {
@@ -708,7 +808,7 @@
             transformers = await import(url);
             break;
           } catch (e) {
-            console.warn("Failed to load transformers from", url, e);
+            console.warn("Failed transformers from", url, e);
           }
         }
         if (!transformers) throw new Error("transformers.js load failed");
@@ -719,7 +819,7 @@
 
         updateProgress(18, "18%");
         let embedP = loadEmbedder().catch(err => {
-          console.warn("Embedder load failed, continuing with heuristic fallback", err);
+          console.warn("Embedder failed, fallback to heuristic", err);
           isEmbedReady = false;
           return null;
         });
@@ -732,8 +832,8 @@
             AutoTokenizer.from_pretrained(MODEL_ID),
           ]);
         } catch (e) {
-          console.error("Moonshine model load failed", e);
-          statusText.textContent = "音声認識モデルの読み込みに失敗、再試行中...";
+          console.error("Moonshine load failed", e);
+          statusText.textContent = "再試行中...";
           await new Promise(r => setTimeout(r, 2000));
           try {
             [model, processor, tokenizer] = await Promise.all([
@@ -762,24 +862,19 @@
         setMicUI(false);
         updateProgress(5, "5%");
         speakAI(currentOpening, () => {
-          statusText.textContent = "マイクを押して話してください";
-          micHint.textContent = "タップして話す";
+          statusText.textContent = "タップして話す";
+          micHint.textContent = "マイクを押してください";
           micBtn.disabled = false;
           micBtn.classList.remove("opacity-50");
         });
       } catch (e) {
         console.error(e);
         stopLoadCopyRotation();
-        statusText.textContent = "モデル読み込み失敗 - タップで再試行";
-        aiPromptText.innerHTML = "ネットワーク状況によりモデルの読み込みに失敗しました。<br>ページを再読み込みするか、マイクボタンを押して再試行してください。";
+        statusText.textContent = "再試行";
+        aiPromptText.innerHTML = "読み込み失敗。タップで再試行してください。";
         micBtn.disabled = false;
         micBtn.classList.remove("opacity-50");
-        micBtn.onclick = () => {
-          if (!isModelReady) {
-            statusText.textContent = "再読み込み中...";
-            loadModel();
-          }
-        };
+        micBtn.onclick = () => { statusText.textContent = "再読み込み中..."; loadModel(); };
       }
     }
 
@@ -963,11 +1058,11 @@
     }
 
     function afterSpeakThenRecord() {
-      // 自動録音を廃止: ユーザーがマイクボタンを押すまで待つ (焦らせないため)
+      // 手動録音: 自動で録音開始しない
       setTimeout(() => {
         if (isModelReady && currentTurn < 2 && viewResultBtn.classList.contains("hidden")) {
-          statusText.textContent = "AIの返答が終わりました。マイクを押して続けてください";
-          micHint.textContent = "タップして話す";
+          statusText.textContent = "タップして話す";
+          micHint.textContent = "マイクを押してください";
           micBtn.disabled = false;
           micBtn.classList.remove("opacity-50");
           setMicUI(false);

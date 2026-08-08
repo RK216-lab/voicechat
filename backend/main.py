@@ -182,6 +182,20 @@ def ensemble_scores(voice_scores, embed_scores):
     return final
 
 # ============ Endpoints ============
+
+@app.post("/extract-features")
+async def extract_features(file: UploadFile = File(...)):
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
+        tmp.write(await file.read())
+        tmp_path=tmp.name
+    try:
+        vec = extract_smile_features(tmp_path)
+        return {"count": len(vec), "features": vec.tolist()[:5]}
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
 @app.post("/predict-fatigue")
 async def predict_fatigue(
     file: UploadFile = File(...),
