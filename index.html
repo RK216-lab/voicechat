@@ -561,7 +561,7 @@
       }
 
 
-      // === 疲労語彙ブースト (「めっちゃ疲れてるのに低スコア」対策) ===
+      // === 疲労語彙ブースト (低スコア対策) ===
       const fatigueBoostKeywords = ["疲れ","疲れた","だるい","眠い","しんどい","つかれ","凝っ","重い","肩","首","頭痛","倦怠","やる気","集中でき"];
       const hasFatigueWord = fatigueBoostKeywords.some(kw => (userText||"").includes(kw));
       const strongFatigue = ["めっちゃ","すごく","死ぬほど","クタクタ","ヘトヘト","全然","首から","肩が","重いです"].some(kw => (userText||"").includes(kw));
@@ -593,41 +593,12 @@
     }
 
 
-    // ===== LightGBMバックエンド版スコア取得 (新規) =====
-    async function scoreFromBackend(audioBlob) {
-      if (!audioBlob) throw new Error("no audio blob");
-      const form = new FormData();
-      form.append("file", audioBlob, "recording.webm");
-      const res = await fetch(`${BACKEND_URL}/predict-fatigue`, {
-        method: "POST",
-        body: form
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error("backend predict failed: " + t);
-      }
-      const data = await res.json();
-      // data: {physical, brain, mental, total, physical_raw...}
-      return {
-        physical: Math.round(data.physical),
-        brain: Math.round(data.brain),
-        mental: Math.round(data.mental),
-        total: Math.round(data.total),
-        raw: data,
-        source: "lightgbm"
-      };
-    }
-
-
-
-
     // ===== LightGBM + Embedding アンサンブル =====
     async function scoreFromBackend(audioBlob, text) {
       if (!audioBlob) throw new Error("no audio blob");
       const form = new FormData();
       form.append("file", audioBlob, "recording.webm");
       form.append("text", text || "");
-      // 埋め込み生値があれば送る (フロントで計算済みの場合)
       if (window.lastEmbedRaw) {
         const er = window.lastEmbedRaw;
         if (er.body !== undefined) form.append("sim_body", String(er.body));
@@ -666,7 +637,6 @@
     }
 
     async function scoreWithFallback(userText, acoustic, audioBlob) {
-      // 埋め込み生スコアを保持
       try {
         if (isEmbedReady && extractor && defVectors) {
           const out = await extractor(userText || "特になし", { pooling: "mean", normalize: true });
@@ -1058,7 +1028,7 @@
     }
 
     function afterSpeakThenRecord() {
-      // 手動録音: 自動で録音開始しない
+      // 手動録音: 自動で開始しない (ユーザーを焦らせない)
       setTimeout(() => {
         if (isModelReady && currentTurn < 2 && viewResultBtn.classList.contains("hidden")) {
           statusText.textContent = "タップして話す";

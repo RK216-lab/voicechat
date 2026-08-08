@@ -191,7 +191,7 @@ async def extract_features(file: UploadFile = File(...)):
         tmp_path=tmp.name
     try:
         vec = extract_smile_features(tmp_path)
-        return {"count": len(vec), "features": vec.tolist()[:5]}
+        return {"count": len(vec)}
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
