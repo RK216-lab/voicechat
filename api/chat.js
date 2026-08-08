@@ -42,7 +42,7 @@ export default async function handler(req) {
       });
     }
 
-    // 従来の非ストリーム
+    // 非ストリーム
     const data = await response.json();
     return new Response(JSON.stringify({ text: data.choices[0].message.content }), {
       status: 200,

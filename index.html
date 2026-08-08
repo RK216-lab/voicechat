@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>自分スキャン - AI疲労診断</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Material Icons -->
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", sans-serif; }
@@ -27,7 +26,6 @@
     .material-icons { font-size: 22px; vertical-align: middle; }
     .mic-icon { font-size: 32px !important; color: #ef4444; }
     .stop-icon { font-size: 28px !important; color: #ef4444; }
-    /* タイプライター用カーソル */
     .typing-cursor::after {
       content: "▋";
       animation: blink 0.8s step-end infinite;
@@ -51,8 +49,6 @@
 
     <!-- ========== SCAN SCREEN ========== -->
     <div id="scanScreen" class="flex-1 flex flex-col p-5 relative">
-
-      <!-- Header -->
       <div class="pt-1">
         <div class="flex items-center justify-between mb-3">
           <button class="w-9 h-9 rounded-full bg-white/70 flex items-center justify-center text-slate-500 shadow-sm">
@@ -61,7 +57,6 @@
           <h1 class="text-slate-700 font-bold text-sm tracking-wide">自分スキャン</h1>
           <div class="w-9"></div>
         </div>
-
         <div class="space-y-1.5 px-1">
           <div class="flex justify-between text-[11px] text-slate-500 font-medium">
             <span>スキャン進行度</span>
@@ -73,17 +68,14 @@
         </div>
       </div>
 
-      <!-- Center -->
       <div class="flex-1 flex flex-col justify-center items-center text-center px-3 space-y-5">
         <div id="statusBadge" class="inline-flex items-center gap-2 bg-white/85 backdrop-blur px-4 py-1.5 rounded-full text-xs text-slate-600 shadow-sm">
           <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
           <span id="statusText">モデルを準備中...</span>
         </div>
-
         <h2 id="aiPromptText" class="text-[18px] font-bold text-slate-800 leading-relaxed max-w-[290px] min-h-[3.2em]">
           準備ができたら<br>下のボタンを押してください
         </h2>
-
         <div id="waveContainer" class="flex items-center gap-1.5 h-5 hidden">
           <div class="wave-dot"></div><div class="wave-dot"></div>
           <div class="wave-dot"></div><div class="wave-dot"></div>
@@ -91,14 +83,12 @@
         </div>
       </div>
 
-      <!-- Controls -->
       <div class="flex flex-col items-center pb-3 space-y-3">
         <button id="micBtn" disabled
           class="w-[78px] h-[78px] rounded-full bg-white border-[5px] border-red-400 flex items-center justify-center shadow-lg transition-all active:scale-95 opacity-50">
           <span id="micInnerIcon" class="material-icons mic-icon">mic</span>
         </button>
         <p id="micHint" class="text-xs text-slate-400">モデル読み込み中...</p>
-
         <button id="viewResultBtn" class="hidden w-full py-3.5 bg-orange-400 hover:bg-orange-500 text-white font-bold rounded-2xl shadow-md fade-in">
           スキャン完了！結果を見る
         </button>
@@ -110,7 +100,6 @@
       <div class="text-center pt-1">
         <h2 class="text-slate-700 font-bold text-base">診断結果</h2>
       </div>
-
       <div class="bg-white rounded-3xl p-5 shadow-sm border border-orange-100/60 text-center space-y-1.5 fade-in">
         <p class="text-[10px] font-bold text-slate-400 tracking-widest">TODAY'S WELL-BEING</p>
         <div class="flex justify-center items-baseline gap-0.5">
@@ -118,7 +107,6 @@
           <span class="text-base font-bold text-slate-400">/100</span>
         </div>
       </div>
-
       <div class="space-y-2">
         <h3 class="text-[11px] font-bold text-slate-600 px-1">コンディション解析</h3>
         <div class="grid grid-cols-3 gap-2.5">
@@ -136,7 +124,6 @@
           </div>
         </div>
       </div>
-
       <div class="bg-white rounded-3xl p-4 shadow-sm border border-orange-100 space-y-2.5 fade-in">
         <div class="flex items-center gap-1.5 text-[11px] font-bold text-orange-500">
           <span class="material-icons" style="font-size:16px;color:#f97316">warning</span>
@@ -148,7 +135,6 @@
         </div>
         <p id="fatigueDetailText" class="text-xs text-slate-500 leading-relaxed"></p>
       </div>
-
       <div class="space-y-2">
         <h3 class="text-[11px] font-bold text-slate-600 px-1">リカバリープログラム</h3>
         <div class="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 flex items-center gap-3">
@@ -170,7 +156,6 @@
           </div>
         </div>
       </div>
-
       <button onclick="location.reload()" class="w-full py-3.5 bg-slate-800 text-white text-xs font-bold rounded-2xl shadow-md mt-1">
         ホームに戻る
       </button>
@@ -200,7 +185,7 @@
     // ===================== 設定 =====================
     const BACKEND_URL = "https://voicechat-gz4j.onrender.com";
     const MODEL_ID = "wmoto-ai/moonshine-tiny-ja-ONNX";
-    const KOKORO_VOICE = "jf_alpha"; // 日本語女性・自然
+    const TTS_VOICE = "ja-JP-NanamiNeural"; // Edge TTS 日本語女性
 
     // ===================== 状態 =====================
     let model = null, processor = null, tokenizer = null;
@@ -211,7 +196,7 @@
     let audioContext = null;
     let analyser = null;
     let silenceStart = null;
-    let currentTurn = 0; // 0→1→2 で終了
+    let currentTurn = 0;
     let allUserTexts = [];
     let lastAcoustic = {};
     let isSpeaking = false;
@@ -220,26 +205,21 @@
     const SILENCE_THRESHOLD = 0.013;
     const SILENCE_MS = 1600;
 
-    // 会話用プロンプト（自然な話し言葉・短め）
     const TURN_PROMPTS = [
-      // ① 今日の出来事・調子
       `あなたは優しくて親しみやすいアシスタントです。
 ユーザーに今日の出来事や体調・気分を自然に聞いてください。
 「今日はどんな一日でしたか？」「今の調子はどうですか？」のような柔らかい聞き方で。
 返答は必ず1〜2文、40文字以内。質問は1つだけ。丁寧すぎず、少し友達に近い距離感で話してください。`,
 
-      // ② 共感＋深掘り
       `ユーザーの話にしっかり共感してから、もう少し詳しく知りたいポイントを1つだけ優しく聞いてください。
 「そうだったんですね」「それは大変でしたね」など共感の言葉を先に置いてください。
 返答は1〜2文、50文字以内。質問は1つだけにしてください。`,
 
-      // ③ まとめ＋ありがとう
       `これまでの話を短くまとめて、「話してくれてありがとう」と伝えてください。
 診断結果には触れないでください。
 自然な話し言葉で、40文字以内にしてください。`
     ];
 
-    // DOM
     const statusText    = document.getElementById("statusText");
     const aiPromptText  = document.getElementById("aiPromptText");
     const progressBar   = document.getElementById("progressBar");
@@ -250,7 +230,6 @@
     const waveContainer = document.getElementById("waveContainer");
     const viewResultBtn = document.getElementById("viewResultBtn");
 
-    // ===================== マイクUI =====================
     function setMicUI(recording) {
       if (recording) {
         micInnerIcon.textContent = "stop";
@@ -263,13 +242,12 @@
       }
     }
 
-    // ===================== タイプライター効果 =====================
     function typeWriter(text, onComplete) {
       if (typewriterTimer) clearTimeout(typewriterTimer);
       aiPromptText.classList.add("typing-cursor");
       aiPromptText.innerHTML = "";
       let i = 0;
-      const speed = 28; // ms per char（自然な速さ）
+      const speed = 28;
 
       function type() {
         if (i < text.length) {
@@ -289,7 +267,6 @@
       type();
     }
 
-    // ===================== モデル =====================
     async function loadModel() {
       try {
         statusText.textContent = "Moonshine Tiny JA 読み込み中...";
@@ -320,7 +297,6 @@
       }
     }
 
-    // ===================== 音声 → 16kHz =====================
     async function blobToFloat32(blob) {
       const ab = await blob.arrayBuffer();
       const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -338,25 +314,19 @@
       return new Float32Array(data);
     }
 
-    // ===================== STT =====================
     async function transcribe(float32) {
       const inputs = await processor(float32);
       const outputs = await model.generate({ ...inputs, max_new_tokens: 96 });
       return tokenizer.decode(outputs[0], { skip_special_tokens: true }).trim() || "（聞き取れませんでした）";
     }
 
-    // ===================== LLM呼び出し（ストリーミング対応） =====================
-    async function callLLMStream(messages, onChunk, onDone) {
+    async function callLLMStream(messages, onChunk) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages, stream: true, max_tokens: 100 }),
       });
-
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err || "LLM error");
-      }
+      if (!res.ok) throw new Error(await res.text() || "LLM error");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -385,11 +355,9 @@
           } catch {}
         }
       }
-      if (onDone) onDone(fullText);
       return fullText;
     }
 
-    // 非ストリーム版（診断用など）
     async function callLLM(messages) {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -400,7 +368,6 @@
       return data.text || data.choices?.[0]?.message?.content || "応答を取得できませんでした";
     }
 
-    // ===================== OpenSmile =====================
     async function getAcoustic(blob) {
       try {
         const fd = new FormData();
@@ -410,7 +377,6 @@
       } catch { return {}; }
     }
 
-    // ===================== 録音 =====================
     async function startRecording() {
       if (!isModelReady || isRecording || isSpeaking) return;
       try {
@@ -476,7 +442,6 @@
       requestAnimationFrame(detectSilence);
     }
 
-    // ===================== ターン処理 =====================
     async function processTurn() {
       try {
         const blob = new Blob(audioChunks, { type: "audio/webm" });
@@ -491,7 +456,6 @@
         currentTurn++;
 
         if (currentTurn <= 2) {
-          // 途中ターン（① or ②）
           statusText.textContent = "AIが考えています...";
           updateProgress(currentTurn * 30, `${currentTurn * 30}%`);
 
@@ -500,34 +464,25 @@
             { role: "user", content: userText }
           ];
 
-          // ストリーミング＋タイプライター
           aiPromptText.classList.add("typing-cursor");
           aiPromptText.innerHTML = "";
 
-          const reply = await callLLMStream(
-            messages,
-            (partial) => {
-              aiPromptText.innerHTML = partial.replace(/\n/g, "<br>");
-            },
-            null
-          );
+          const reply = await callLLMStream(messages, (partial) => {
+            aiPromptText.innerHTML = partial.replace(/\n/g, "<br>");
+          });
 
           aiPromptText.classList.remove("typing-cursor");
-          // 最終的に整った表示
           typeWriter(reply, () => {
             speakAI(reply, () => {
-              // TTS終了後に自動で次の録音を開始
               setTimeout(() => {
                 if (currentTurn < 3) startRecording();
               }, 500);
             });
           });
         } else {
-          // 最終ターン（③）＋診断生成
           statusText.textContent = "診断を生成中...";
           updateProgress(80, "80%");
 
-          // まず③のまとめ発話（ストリーム）
           const summaryMessages = [
             { role: "system", content: TURN_PROMPTS[2] },
             { role: "user", content: allUserTexts.join(" / ") }
@@ -540,10 +495,8 @@
           });
           aiPromptText.classList.remove("typing-cursor");
 
-          // OpenSmile結果を待つ
           lastAcoustic = await acousticP;
 
-          // 診断用プロンプト
           const featureSummary = summarizeAcoustic(lastAcoustic);
           const diagnosisMessages = [
             {
@@ -567,8 +520,6 @@ ${allUserTexts.join("\n")}`
           ];
 
           const diagnosis = await callLLM(diagnosisMessages);
-
-          // パース
           const lines = diagnosis.split("\n").filter(l => l.trim());
           const titleLine = lines.find(l => l.includes("タイトル")) || "タイトル：総合的な疲れ";
           const detail = lines.filter(l => !l.includes("タイトル")).join(" ").replace(/詳細[：:]/, "").trim();
@@ -577,7 +528,6 @@ ${allUserTexts.join("\n")}`
             titleLine.replace(/タイトル[：:]/, "").trim();
           document.getElementById("fatigueDetailText").textContent = detail || diagnosis;
 
-          // 簡易スコア
           const scores = heuristicScores(lastAcoustic);
           document.getElementById("scoreTotalVal").textContent = scores.total;
           document.getElementById("scoreBrainVal").innerHTML = `${scores.brain}<span class="text-xs font-normal">%</span>`;
@@ -589,7 +539,6 @@ ${allUserTexts.join("\n")}`
           micBtn.classList.add("hidden");
           viewResultBtn.classList.remove("hidden");
 
-          // まとめを話してから結果へ誘導
           speakAI(summary + "。結果をご覧ください。");
         }
       } catch (e) {
@@ -601,7 +550,6 @@ ${allUserTexts.join("\n")}`
       }
     }
 
-    // 音響特徴の要約（LLMに渡しやすく）
     function summarizeAcoustic(f) {
       if (!f || Object.keys(f).length === 0) return "特徴量取得失敗";
       const keys = [
@@ -629,7 +577,6 @@ ${allUserTexts.join("\n")}`
       return { physical, brain, mental, total };
     }
 
-    // ===================== TTS（Kokoro優先・Edgeフォールバック） =====================
     async function speakAI(text, onEnd) {
       if (!text || !text.trim()) {
         if (onEnd) onEnd();
@@ -643,10 +590,8 @@ ${allUserTexts.join("\n")}`
       micBtn.classList.add("opacity-50");
 
       try {
-        // Kokoro (または Edge フォールバック) をバックエンド経由で呼び出し
-        const url = `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=${KOKORO_VOICE}`;
+        const url = `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=${TTS_VOICE}`;
         const res = await fetch(url);
-
         if (!res.ok) throw new Error("TTS failed");
 
         const blob = await res.blob();
@@ -669,7 +614,6 @@ ${allUserTexts.join("\n")}`
           micBtn.classList.remove("opacity-50");
           if (onEnd) onEnd();
         };
-
         await audio.play();
       } catch (e) {
         console.warn("TTS失敗、ブラウザTTSにフォールバック", e);
@@ -677,7 +621,6 @@ ${allUserTexts.join("\n")}`
         isSpeaking = false;
         micBtn.disabled = false;
         micBtn.classList.remove("opacity-50");
-        // フォールバック（ブラウザ標準）
         if (window.speechSynthesis) {
           const u = new SpeechSynthesisUtterance(text);
           u.lang = "ja-JP";
@@ -695,7 +638,6 @@ ${allUserTexts.join("\n")}`
       progressText.textContent = label;
     }
 
-    // ===================== イベント =====================
     micBtn.addEventListener("click", () => {
       if (!isModelReady || isSpeaking) return;
       if (isRecording) stopRecording();
@@ -707,7 +649,6 @@ ${allUserTexts.join("\n")}`
       document.getElementById("resultScreen").classList.remove("hidden");
     });
 
-    // 起動
     loadModel();
   </script>
 </body>
