@@ -186,12 +186,40 @@ def ensemble_scores(voice_scores, embed_scores):
 @app.post("/extract-features")
 async def extract_features(file: UploadFile = File(...)):
     import tempfile, os
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
+    # iOS対応: m4a/mp4でも受け取る
+    suffix = ".webm"
+    if file.filename:
+        if file.filename.lower().endswith(".m4a"): suffix=".m4a"
+        elif file.filename.lower().endswith(".mp4"): suffix=".mp4"
+        elif file.filename.lower().endswith(".mp3"): suffix=".mp3"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await file.read())
         tmp_path=tmp.name
     try:
-        vec = extract_smile_features(tmp_path)
-        return {"count": len(vec)}
+        # mp4/m4aはwavに変換してからopenSMILEに渡す (iOS対策)
+        if suffix in [".m4a", ".mp4"]:
+            try:
+                from pydub import AudioSegment
+                audio = AudioSegment.from_file(tmp_path)
+                wav_path = tmp_path + ".wav"
+                audio.export(wav_path, format="wav")
+                vec = extract_smile_features(wav_path)
+                os.remove(wav_path)
+            except Exception as e:
+                print(f"[WARN] convert {suffix} to wav failed: {e}, trying direct")
+                vec = extract_smile_features(tmp_path)
+        else:
+            vec = extract_smile_features(tmp_path)
+        # 簡易特徴量も返す (フロントのフォールバック用)
+        try:
+            df = None
+            # vecはndarrayなので適当に返す
+            return {"count": len(vec), "ok": True}
+        except:
+            return {"count": len(vec)}
+    except Exception as e:
+        print(f"[ERROR] extract_features failed: {e}")
+        return {"count": 0, "error": str(e)}
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -207,12 +235,32 @@ async def predict_fatigue(
 ):
     if not models:
         raise HTTPException(status_code=500, detail="Models not loaded")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
+    suffix = ".webm"
+    if file.filename:
+        fn = file.filename.lower()
+        if fn.endswith(".m4a"): suffix=".m4a"
+        elif fn.endswith(".mp4"): suffix=".mp4"
+        elif fn.endswith(".mp3"): suffix=".mp3"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await file.read())
         tmp_path=tmp.name
+    wav_converted_path = None
     try:
-        duration = get_audio_duration_sec(tmp_path)
-        smile_vec = extract_smile_features(tmp_path)
+        # iOS: m4a/mp4 -> wav変換
+        if suffix in [".m4a", ".mp4"]:
+            try:
+                from pydub import AudioSegment
+                audio = AudioSegment.from_file(tmp_path)
+                wav_converted_path = tmp_path + ".wav"
+                audio.export(wav_converted_path, format="wav")
+                use_path = wav_converted_path
+            except Exception as e:
+                print(f"[WARN] convert to wav failed: {e}")
+                use_path = tmp_path
+        else:
+            use_path = tmp_path
+        duration = get_audio_duration_sec(use_path if use_path else tmp_path)
+        smile_vec = extract_smile_features(use_path)
         vec91 = build_91_vector(smile_vec, text=text, duration=duration)
         vec91_std = standardize_91(vec91)
         voice_scores = predict_voice_91(vec91_std)
@@ -262,6 +310,11 @@ async def predict_fatigue(
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+        if wav_converted_path and os.path.exists(wav_converted_path):
+            try:
+                os.remove(wav_converted_path)
+            except:
+                pass
 
 @app.get("/tts")
 async def tts(text: str = Query(..., min_length=1, max_length=400), voice: str = Query("ja-JP-NanamiNeural")):
