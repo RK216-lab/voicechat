@@ -11,6 +11,9 @@ import opensmile
 import edge_tts
 import lightgbm as lgb
 from typing import Optional
+import httpx
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 app = FastAPI(title="Fatigue Ensemble: Voice + Embedding")
 
@@ -186,40 +189,12 @@ def ensemble_scores(voice_scores, embed_scores):
 @app.post("/extract-features")
 async def extract_features(file: UploadFile = File(...)):
     import tempfile, os
-    # iOS対応: m4a/mp4でも受け取る
-    suffix = ".webm"
-    if file.filename:
-        if file.filename.lower().endswith(".m4a"): suffix=".m4a"
-        elif file.filename.lower().endswith(".mp4"): suffix=".mp4"
-        elif file.filename.lower().endswith(".mp3"): suffix=".mp3"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
         tmp.write(await file.read())
         tmp_path=tmp.name
     try:
-        # mp4/m4aはwavに変換してからopenSMILEに渡す (iOS対策)
-        if suffix in [".m4a", ".mp4"]:
-            try:
-                from pydub import AudioSegment
-                audio = AudioSegment.from_file(tmp_path)
-                wav_path = tmp_path + ".wav"
-                audio.export(wav_path, format="wav")
-                vec = extract_smile_features(wav_path)
-                os.remove(wav_path)
-            except Exception as e:
-                print(f"[WARN] convert {suffix} to wav failed: {e}, trying direct")
-                vec = extract_smile_features(tmp_path)
-        else:
-            vec = extract_smile_features(tmp_path)
-        # 簡易特徴量も返す (フロントのフォールバック用)
-        try:
-            df = None
-            # vecはndarrayなので適当に返す
-            return {"count": len(vec), "ok": True}
-        except:
-            return {"count": len(vec)}
-    except Exception as e:
-        print(f"[ERROR] extract_features failed: {e}")
-        return {"count": 0, "error": str(e)}
+        vec = extract_smile_features(tmp_path)
+        return {"count": len(vec)}
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -235,32 +210,12 @@ async def predict_fatigue(
 ):
     if not models:
         raise HTTPException(status_code=500, detail="Models not loaded")
-    suffix = ".webm"
-    if file.filename:
-        fn = file.filename.lower()
-        if fn.endswith(".m4a"): suffix=".m4a"
-        elif fn.endswith(".mp4"): suffix=".mp4"
-        elif fn.endswith(".mp3"): suffix=".mp3"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
         tmp.write(await file.read())
         tmp_path=tmp.name
-    wav_converted_path = None
     try:
-        # iOS: m4a/mp4 -> wav変換
-        if suffix in [".m4a", ".mp4"]:
-            try:
-                from pydub import AudioSegment
-                audio = AudioSegment.from_file(tmp_path)
-                wav_converted_path = tmp_path + ".wav"
-                audio.export(wav_converted_path, format="wav")
-                use_path = wav_converted_path
-            except Exception as e:
-                print(f"[WARN] convert to wav failed: {e}")
-                use_path = tmp_path
-        else:
-            use_path = tmp_path
-        duration = get_audio_duration_sec(use_path if use_path else tmp_path)
-        smile_vec = extract_smile_features(use_path)
+        duration = get_audio_duration_sec(tmp_path)
+        smile_vec = extract_smile_features(tmp_path)
         vec91 = build_91_vector(smile_vec, text=text, duration=duration)
         vec91_std = standardize_91(vec91)
         voice_scores = predict_voice_91(vec91_std)
@@ -310,11 +265,6 @@ async def predict_fatigue(
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if wav_converted_path and os.path.exists(wav_converted_path):
-            try:
-                os.remove(wav_converted_path)
-            except:
-                pass
 
 @app.get("/tts")
 async def tts(text: str = Query(..., min_length=1, max_length=400), voice: str = Query("ja-JP-NanamiNeural")):
@@ -330,6 +280,80 @@ async def tts(text: str = Query(..., min_length=1, max_length=400), voice: str =
         audio_data=f.read()
     os.remove(tmp_path)
     return Response(content=audio_data, media_type="audio/mpeg")
+
+
+# ============ Chat (Groq) - LLM会話用 ============
+@app.post("/chat")
+@app.post("/api/chat")
+async def chat_proxy(request: Request):
+    try:
+        body = await request.json()
+        messages = body.get("messages", [])
+        api_key = os.getenv("GROQ_API_KEY")
+        # APIキー無い場合でも会話が止まらないようにフォールバック
+        if not api_key:
+            last_user = ""
+            for m in reversed(messages):
+                if m.get("role") == "user":
+                    last_user = m.get("content","")
+                    break
+            # 簡易ルールで会話継続
+            if len([m for m in messages if m.get("role")=="user"]) <= 1:
+                # 2回目
+                if "疲" in last_user or "だる" in last_user or "眠" in last_user:
+                    fallback = "そっか、疲れを感じてるんだね。どんな時に一番つらいと感じる？"
+                elif "元気" in last_user or "大丈夫" in last_user:
+                    fallback = "元気そうでよかった。今日はどんなことがあったのか教えてくれる？"
+                else:
+                    fallback = f"そうなんだね。もう少しだけ詳しく聞かせてくれる？"
+            else:
+                fallback = "話してくれてありがとう。少しゆっくり休んでみてもいいかもね。"
+            return JSONResponse({"text": fallback, "fallback": True})
+        
+        payload = {
+            "model": "openai/gpt-oss-20b",
+            "messages": messages,
+            "temperature": 0.75,
+            "max_completion_tokens": body.get("max_tokens") or 120,
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            )
+            if resp.status_code != 200:
+                # Groq失敗時もフォールバック
+                err_text = resp.text
+                print(f"[Groq error] {resp.status_code} {err_text}")
+                last_user = ""
+                for m in reversed(messages):
+                    if m.get("role") == "user":
+                        last_user = m.get("content","")
+                        break
+                return JSONResponse({"text": f"なるほど、{last_user[:20]}なんだね。もう少しだけ教えてくれる？", "groq_error": err_text})
+            data = resp.json()
+            text_out = data["choices"][0]["message"]["content"]
+            return JSONResponse({"text": text_out})
+    except Exception as e:
+        print(f"[chat_proxy error] {e}")
+        # 絶対に会話を止めないフォールバック
+        try:
+            body = await request.json()
+            messages = body.get("messages", [])
+        except:
+            messages = []
+        last_user = ""
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                last_user = m.get("content","")
+                break
+        if len([m for m in messages if m.get("role")=="user"]) <= 1:
+            fb = "そうなんだね、もう少しだけ詳しく教えてくれる？"
+        else:
+            fb = "話してくれてありがとう。少し休んでみてもいいかもしれないね。"
+        return JSONResponse({"text": fb, "error": str(e)})
+
 
 @app.get("/")
 def health():
