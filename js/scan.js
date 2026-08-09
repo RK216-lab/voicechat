@@ -1,10 +1,13 @@
+/**
+ * Restee スキャン - iOS完全対応 / LLM & レポート修正版
+ */
 const BACKEND_URL = "https://voicechat-gz4j.onrender.com";
 const MODEL_ID = "wmoto-ai/moonshine-tiny-ja-ONNX";
 const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 const LOCAL_TTS_MODEL = "Xenova/mms-tts-jpn";
 const SILENCE_THRESHOLD = 0.011;
 const SILENCE_MS = 2200;
-const POST_TTS_GAP_MS = 420;
+const POST_TTS_GAP_MS = 500;
 const IS_IOS =
   /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -34,7 +37,9 @@ let currentTurn = 0,
   loadCopyTimer = null;
 let recognition = null,
   iosLastTranscript = "",
-  audioUnlocked = false;
+  audioUnlocked = false,
+  openingSpoken = false,
+  firstInteractionDone = false;
 const DOM = {};
 function bindDOM() {
   DOM.statusText = document.getElementById("statusText");
@@ -327,31 +332,6 @@ function simToCategory(v, p) {
     (0.3 * sims.reduce((a, b) => a + b, 0)) / sims.length
   );
 }
-function acousticFatigueProxy(f) {
-  if (!f || !Object.keys(f).length) return null;
-  const get = (...keys) => {
-    for (const k of keys) {
-      if (f[k] != null) return Number(f[k]);
-    }
-    for (const k of Object.keys(f)) {
-      for (const want of keys) {
-        if (k.endsWith(want) || k.includes(want)) {
-          const v = Number(f[k]);
-          if (Number.isFinite(v)) return v;
-        }
-      }
-    }
-    return null;
-  };
-  const loud = get("loudness_sma3_amean", "smile_loudness_sma3_amean");
-  const jitter = get("jitterLocal_sma3nz_amean");
-  const hnr = get("HNRdBACF_sma3nz_amean");
-  let score = 50;
-  if (loud != null) score += (0.35 - loud) * 60;
-  if (jitter != null) score += (jitter - 0.02) * 400;
-  if (hnr != null) score += (8 - hnr) * 2.5;
-  return Math.max(20, Math.min(88, Math.round(score)));
-}
 function heuristicTextScores(t) {
   let physical = 42,
     brain = 42,
@@ -423,22 +403,6 @@ async function scoreFromText(userText, acoustic) {
     embedScores.physical = Math.min(93, embedScores.physical + 18);
     embedScores.brain = Math.min(93, embedScores.brain + 14);
     embedScores.mental = Math.min(93, embedScores.mental + 16);
-    const avg =
-      (embedScores.physical + embedScores.brain + embedScores.mental) / 3;
-    embedScores.total = Math.max(
-      18,
-      Math.min(95, Math.round(100 - avg * 0.88)),
-    );
-  }
-  const ac = acousticFatigueProxy(acoustic || lastAcoustic);
-  if (ac != null) {
-    const blend = (e) => Math.round(e * 0.8 + ac * 0.2);
-    embedScores = {
-      ...embedScores,
-      physical: blend(embedScores.physical),
-      brain: blend(embedScores.brain),
-      mental: blend(embedScores.mental),
-    };
     const avg =
       (embedScores.physical + embedScores.brain + embedScores.mental) / 3;
     embedScores.total = Math.max(
@@ -646,33 +610,36 @@ async function loadModel() {
           break;
         } catch (e) {}
       }
-      if (!transformers) throw new Error("transformers load failed");
-      const {
-        MoonshineForConditionalGeneration,
-        AutoProcessor,
-        AutoTokenizer,
-        env,
-      } = transformers;
-      env.allowLocalModels = false;
-      env.useBrowserCache = true;
-      updateProgress(20, "20%");
-      let embedP = loadEmbedder().catch(() => {});
-      updateProgress(30, "30%");
-      try {
-        [model, processor, tokenizer] = await Promise.all([
-          MoonshineForConditionalGeneration.from_pretrained(MODEL_ID, {
-            dtype: "fp32",
-            device: "wasm",
-          }),
-          AutoProcessor.from_pretrained(MODEL_ID),
-          AutoTokenizer.from_pretrained(MODEL_ID),
-        ]);
-      } catch (e) {
-        console.warn("Moonshine failed continue", e);
+      if (transformers) {
+        const {
+          MoonshineForConditionalGeneration,
+          AutoProcessor,
+          AutoTokenizer,
+          env,
+        } = transformers;
+        env.allowLocalModels = false;
+        env.useBrowserCache = true;
+        updateProgress(20, "20%");
+        let embedP = loadEmbedder().catch(() => {});
+        updateProgress(30, "30%");
+        try {
+          [model, processor, tokenizer] = await Promise.all([
+            MoonshineForConditionalGeneration.from_pretrained(MODEL_ID, {
+              dtype: "fp32",
+              device: "wasm",
+            }),
+            AutoProcessor.from_pretrained(MODEL_ID),
+            AutoTokenizer.from_pretrained(MODEL_ID),
+          ]);
+        } catch (e) {
+          console.warn("Moonshine skip", e);
+        }
+        updateProgress(70, "70%");
+        await embedP;
+        loadLocalTTS().catch(() => {});
+      } else {
+        await loadEmbedder().catch(() => {});
       }
-      updateProgress(70, "70%");
-      await embedP;
-      loadLocalTTS().catch(() => {});
     }
     updateProgress(95, "95%");
     stopLoadCopyRotation();
@@ -688,14 +655,19 @@ async function loadModel() {
     }
     setMicUI(false);
     updateProgress(5, "5%");
-    speakAI(currentOpening, () => {
-      if (DOM.statusText) DOM.statusText.textContent = "タップして話す";
-      if (DOM.micHint) DOM.micHint.textContent = "マイクを押してください";
-      if (DOM.micBtn) {
-        DOM.micBtn.disabled = false;
-        DOM.micBtn.classList.remove("opacity-50");
-      }
-    });
+    if (IS_IOS) {
+      DOM.statusText.textContent = "タップして会話を開始";
+      DOM.micHint.textContent = "タップして音声を開始";
+      openingSpoken = false;
+      firstInteractionDone = false;
+    } else {
+      speakAI(currentOpening, () => {
+        openingSpoken = true;
+        firstInteractionDone = true;
+        DOM.statusText.textContent = "タップして話す";
+        DOM.micHint.textContent = "マイクを押してください";
+      });
+    }
   } catch (e) {
     console.error(e);
     stopLoadCopyRotation();
@@ -706,8 +678,7 @@ async function loadModel() {
       DOM.micBtn.disabled = false;
       DOM.micBtn.classList.remove("opacity-50");
       DOM.micBtn.onclick = () => {
-        if (DOM.statusText) DOM.statusText.textContent = "再読み込み中...";
-        loadModel();
+        location.reload();
       };
     }
   }
@@ -752,20 +723,44 @@ async function transcribe(float32) {
   );
 }
 async function callLLM(messages) {
-  const urls = ["/api/chat", `${BACKEND_URL}/api/chat`];
-  for (const url of urls) {
+  const endpoints = [
+    "/api/chat",
+    `${BACKEND_URL}/api/chat`,
+    `${BACKEND_URL}/chat`,
+    "/chat",
+  ];
+  for (const url of endpoints) {
     try {
+      const controller = new AbortController();
+      const to = setTimeout(() => controller.abort(), 12000);
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages }),
+        signal: controller.signal,
       });
+      clearTimeout(to);
       if (!res.ok) continue;
       const data = await res.json();
-      return data.text || data.choices?.[0]?.message?.content || "";
-    } catch (e) {}
+      if (data.text && data.text.trim()) return data.text.trim();
+      if (data.choices && data.choices[0]?.message?.content)
+        return data.choices[0].message.content.trim();
+    } catch (e) {
+      console.warn("LLM fail", url, e.message);
+    }
   }
-  return "そうなんですね。もう少し詳しく教えてもらえますか？";
+  const userCount = messages.filter((m) => m.role === "user").length;
+  const lastUser =
+    messages.filter((m) => m.role === "user").pop()?.content || "";
+  if (userCount <= 1) {
+    if (/疲|だる|眠|しんど|重/.test(lastUser))
+      return "そっか、疲れを感じてるんだね。どんな時に一番そう感じるか教えてくれる？";
+    if (/元気|大丈夫|平気|調子いい/.test(lastUser))
+      return "元気そうでよかった。その調子の良さ、何か理由はある？";
+    return "そうなんだね。もう少しだけ詳しく教えてくれる？例えば今日どんなことがあった？";
+  } else {
+    return "話してくれてありがとう。少しゆっくり休んでみてもいいかもしれないね。";
+  }
 }
 async function getAcoustic(blob) {
   try {
@@ -784,24 +779,46 @@ async function getAcoustic(blob) {
 function parseDiagnosisJSON(raw, scores) {
   const fallbackTitle = titleFromScores(scores);
   const fallbackDetail =
-    "今日の話をありがとう。無理せず、できる範囲で休んでみてください。";
+    "今日のお話を聞いて、少し疲れが溜まっているように感じました。無理せず、できる範囲で休んでみてください。";
   if (!raw) return { title: fallbackTitle, detail: fallbackDetail };
-  let s = raw
-    .trim()
+  let s = String(raw).trim();
+  s = s
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-  const m = s.match(/\{[\s\S]*\}/);
-  if (m) s = m[0];
-  try {
-    const obj = JSON.parse(s);
-    return {
-      title: (obj.title || fallbackTitle).toString().trim(),
-      detail: (obj.detail || fallbackDetail).toString().trim(),
-    };
-  } catch {
-    return { title: fallbackTitle, detail: fallbackDetail };
+  const jsonMatch = s.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const obj = JSON.parse(jsonMatch[0]);
+      let title = (obj.title || obj.タイトル || "").toString().trim();
+      let detail = (obj.detail || obj.詳細 || obj.content || "")
+        .toString()
+        .trim();
+      title = title.replace(/["{}]/g, "").trim();
+      detail = detail.replace(/^["\s]+|["\s]+$/g, "").replace(/\\n/g, "。");
+      if (!title) title = fallbackTitle;
+      if (!detail) detail = fallbackDetail;
+      if (detail.includes('"title"') || detail.includes("{"))
+        detail = fallbackDetail;
+      return { title, detail };
+    } catch (e) {
+      try {
+        const tMatch =
+          s.match(/"title"\s*:\s*"([^"]+)"/) ||
+          s.match(/タイトル[":\s]*"([^"]+)"/);
+        const dMatch =
+          s.match(/"detail"\s*:\s*"([^"]+)"/) ||
+          s.match(/詳細[":\s]*"([^"]+)"/);
+        let title = tMatch ? tMatch[1] : fallbackTitle;
+        let detail = dMatch ? dMatch[1] : fallbackDetail;
+        return { title, detail };
+      } catch {}
+    }
   }
+  if (s.length > 10 && !s.trim().startsWith("{")) {
+    return { title: fallbackTitle, detail: s.slice(0, 200) };
+  }
+  return { title: fallbackTitle, detail: fallbackDetail };
 }
 function setMicUI(rec) {
   if (!DOM.micBtn) return;
@@ -813,7 +830,9 @@ function setMicUI(rec) {
   } else {
     DOM.micInnerIcon.textContent = "mic";
     DOM.micInnerIcon.className = "material-icons mic-icon";
-    DOM.micHint.textContent = "タップして話す";
+    DOM.micHint.textContent = firstInteractionDone
+      ? "タップして話す"
+      : "タップして音声を開始";
     DOM.micBtn.classList.remove("mic-pulse");
   }
 }
@@ -841,6 +860,17 @@ function stopWaveAnim() {
 async function startRecording() {
   if (!isModelReady || isRecording || isSpeaking) return;
   unlockAudioContext();
+  if (IS_IOS && !openingSpoken) {
+    firstInteractionDone = true;
+    openingSpoken = true;
+    DOM.statusText.textContent = "AIが話しています...";
+    speakAI(currentOpening, () => {
+      DOM.statusText.textContent = "タップして話す";
+      DOM.micHint.textContent = "マイクを押してください";
+      setMicUI(false);
+    });
+    return;
+  }
   try {
     const mimeType = getSupportedMimeType();
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -1058,6 +1088,7 @@ async function speakWithBackend(text) {
     clearTimeout(timeoutId);
     if (!res.ok) throw new Error("TTS backend failed");
     const blob = await res.blob();
+    if (blob.size < 500) throw new Error("empty");
     const audioUrl = URL.createObjectURL(blob);
     const audio = new Audio(audioUrl);
     audio.playsInline = true;
@@ -1120,7 +1151,7 @@ async function speakAI(text, onEnd, retries = 1) {
       finish();
       return;
     } catch (be) {
-      console.warn("[TTS] backend failed", be);
+      console.warn("[TTS] backend fail", be.message);
       if (IS_IOS) DOM.statusText.textContent = "音声を準備中...(ローカル)";
     }
     await speakWithLocalMMS(text);
@@ -1131,13 +1162,13 @@ async function speakAI(text, onEnd, retries = 1) {
       await new Promise((r) => setTimeout(r, 800));
       return speakAI(text, onEnd, retries - 1);
     }
-    DOM.statusText.textContent = "音声を再生できませんでした (タップして続行)";
+    DOM.statusText.textContent = prevStatus;
     isSpeaking = false;
     if (isModelReady) {
       DOM.micBtn.disabled = false;
       DOM.micBtn.classList.remove("opacity-50");
     }
-    if (onEnd) setTimeout(onEnd, 500);
+    if (onEnd) setTimeout(onEnd, 400);
   }
   function finish() {
     DOM.statusText.textContent = prevStatus;
@@ -1154,7 +1185,21 @@ function initScan() {
   if (!DOM.micBtn) return;
   DOM.micBtn.addEventListener("touchstart", unlockAudioContext, { once: true });
   DOM.micBtn.addEventListener("click", () => {
+    unlockAudioContext();
     if (!isModelReady || isSpeaking) return;
+    if (IS_IOS && !firstInteractionDone) {
+      firstInteractionDone = true;
+      if (!openingSpoken) {
+        openingSpoken = true;
+        DOM.statusText.textContent = "AIが話しています...";
+        speakAI(currentOpening, () => {
+          DOM.statusText.textContent = "タップして話す";
+          DOM.micHint.textContent = "マイクを押してください";
+          setMicUI(false);
+        });
+        return;
+      }
+    }
     if (isRecording) stopRecording();
     else startRecording();
   });
