@@ -47,6 +47,8 @@ let isLocalTTSReady = false;
 
 let isRecording = false;
 let isSpeaking = false;
+let isConversationStarted = false; // ← これを追加
+
 
 let mediaRecorder = null;
 let audioChunks = [];
@@ -886,21 +888,18 @@ async function loadModel() {
 
     conversationLog = [{ role: "assistant", content: currentOpening }];
 
+        // (前略)
     if (DOM.micBtn) {
       DOM.micBtn.disabled = false;
       DOM.micBtn.classList.remove("opacity-50");
     }
     setMicUI(false);
-    updateProgress(5, "5%");
+    updateProgress(100, "100%"); // 完了なので100%にしておくのが自然です
 
-    speakAI(currentOpening, () => {
-      if (DOM.statusText) DOM.statusText.textContent = "タップして話す";
-      if (DOM.micHint) DOM.micHint.textContent = "マイクを押してください";
-      if (DOM.micBtn) {
-        DOM.micBtn.disabled = false;
-        DOM.micBtn.classList.remove("opacity-50");
-      }
-    });
+    // 自動再生をやめ、ユーザーのタップを待つ状態にする
+    if (DOM.statusText) DOM.statusText.textContent = "タップして開始";
+    if (DOM.micHint) DOM.micHint.textContent = "ここを押して会話をはじめる";
+
   } catch (e) {
     console.error("[loadModel]", e);
     stopLoadCopyRotation();
@@ -1553,12 +1552,37 @@ function initScan() {
   DOM.micBtn.addEventListener("touchstart", () => { unlockAudioContext(); }, { passive: true });
   DOM.micBtn.addEventListener("pointerdown", () => { unlockAudioContext(); }, { passive: true });
 
-  DOM.micBtn.addEventListener("click", async () => {
+    DOM.micBtn.addEventListener("click", async () => {
     await unlockAudioContext();
     if (!isModelReady || isSpeaking) return;
+
+    // 初回タップ時の処理（ここで初めて音声を鳴らす）
+    if (!isConversationStarted) {
+      isConversationStarted = true;
+      
+      // 連打防止のため一時的にボタンを無効化
+      DOM.micBtn.disabled = true;
+      DOM.micBtn.classList.add("opacity-50");
+      if (DOM.statusText) DOM.statusText.textContent = "準備中...";
+      if (DOM.micHint) DOM.micHint.textContent = "AIが話します...";
+
+      // ここで確実にユーザーのタップ由来として再生される
+      speakAI(currentOpening, () => {
+        if (DOM.statusText) DOM.statusText.textContent = "タップして話す";
+        if (DOM.micHint) DOM.micHint.textContent = "マイクを押して話し始めてください";
+        if (DOM.micBtn) {
+          DOM.micBtn.disabled = false;
+          DOM.micBtn.classList.remove("opacity-50");
+        }
+      });
+      return; // 録音はまだ開始しない
+    }
+
+    // 2回目以降のタップは通常の録音スタート／ストップ
     if (isRecording) stopRecording();
     else await startRecording();
   });
+
 
   if (DOM.viewResultBtn) {
     DOM.viewResultBtn.addEventListener("click", () => {
