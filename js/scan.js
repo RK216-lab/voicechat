@@ -1,10 +1,11 @@
 /* =========================================================
    Restee 自分スキャン
-   scan.js 完全版 (修正版)
+   scan.js 完全版 (全修正統合版)
 
-   HTML変更不要
-   - Moonshine Tiny JA (iOSでも読み込み対応)
-   - SpeechRecognition fallback (iOS用)
+   - 自動再生ポリシー(Autoplay)回避の初回タップ対応
+   - Transformers.js +esm モジュールインポート
+   - Moonshine Tiny JA を Pipeline で安定ロード
+   - iOS SpeechRecognition fallback
    - Edge TTS / Render backend TTS 優先
    - Local MMS TTS fallback
    - Render API
@@ -18,8 +19,8 @@ const MODEL_ID = "wmoto-ai/moonshine-tiny-ja-ONNX";
 const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 const LOCAL_TTS_MODEL = "Xenova/mms-tts-jpn";
 
-// 存在しないバージョン指定(3.5.0)を避け、最新のv3系を読み込むようにURLを修正
-const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
+// ESMモジュールとして確実なバージョンをインポート
+const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.2.4/+esm";
 
 const SILENCE_THRESHOLD = 0.011;
 const SILENCE_MS = 2200;
@@ -32,10 +33,7 @@ const IS_IOS =
 const IS_SAFARI =
   /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
-let model = null;
-let processor = null;
-let tokenizer = null;
-
+let transcriber = null; // Moonshine用（Pipeline）
 let extractor = null;
 let defVectors = null;
 
@@ -47,8 +45,7 @@ let isLocalTTSReady = false;
 
 let isRecording = false;
 let isSpeaking = false;
-let isConversationStarted = false; // ← これを追加
-
+let isConversationStarted = false; // 初回タップ検知用
 
 let mediaRecorder = null;
 let audioChunks = [];
@@ -297,7 +294,7 @@ const FATIGUE_DEFS = {
   ],
   mental: [
     "気持ちが休まらない、イライラする",
-    "プレ শুটিংを感じて心が疲れている",
+    "プレッシャーを感じて心が疲れている", // タイポ修正
     "やる気が出ない",
     "不安が続きリラックスできない",
     "人と話すのが少し負担",
@@ -821,7 +818,7 @@ function stopIOSRecognition() {
 }
 
 /* =========================================================
-   Load Moonshine (iOSも含めて読み込みを試行)
+   Load Moonshine
    ========================================================= */
 
 async function loadModel() {
@@ -830,7 +827,6 @@ async function loadModel() {
     startLoadCopyRotation();
     updateProgress(5, "5%");
 
-    // iOSの場合もMoonshineはロードするが、万一のためにSpeechRecognitionをセットアップしておく
     if (IS_IOS) {
       recognition = setupIOSRecognition();
     }
@@ -846,8 +842,7 @@ async function loadModel() {
       throw new Error("Transformers.jsを読み込めませんでした");
     }
 
-    // 正しいモデルクラス(AutoModelForSpeechSeq2Seq)を使用
-    const { AutoModelForSpeechSeq2Seq, AutoProcessor, AutoTokenizer, env } = transformers;
+    const { pipeline, env } = transformers;
     env.allowLocalModels = false;
     env.useBrowserCache = true;
 
@@ -858,45 +853,36 @@ async function loadModel() {
     });
 
     try {
-      [model, processor, tokenizer] = await Promise.all([
-        AutoModelForSpeechSeq2Seq.from_pretrained(MODEL_ID, {
-          dtype: "q8", // iOSなどメモリが少ない環境でも落ちにくいよう量子化モデルを指定
-          device: "wasm"
-        }),
-        AutoProcessor.from_pretrained(MODEL_ID),
-        AutoTokenizer.from_pretrained(MODEL_ID)
-      ]);
+      // Pipeline化による安定化
+      transcriber = await pipeline("automatic-speech-recognition", MODEL_ID, {
+        dtype: "q8",
+        device: "wasm"
+      });
       console.log("[Moonshine] ready");
     } catch (e) {
       console.warn("[Moonshine failed]", e);
-      model = null;
-      processor = null;
-      tokenizer = null;
+      transcriber = null;
     }
 
     updateProgress(70, "70%");
     await embedPromise;
-    updateProgress(95, "95%");
+    updateProgress(100, "100%");
     stopLoadCopyRotation();
 
     isModelReady = true;
-
-    if (DOM.statusText) DOM.statusText.textContent = "準備完了";
 
     currentOpening = OPENINGS[Math.floor(Math.random() * OPENINGS.length)];
     if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = currentOpening.replace(/。/g, "。<br>");
 
     conversationLog = [{ role: "assistant", content: currentOpening }];
 
-        // (前略)
     if (DOM.micBtn) {
       DOM.micBtn.disabled = false;
       DOM.micBtn.classList.remove("opacity-50");
     }
     setMicUI(false);
-    updateProgress(100, "100%"); // 完了なので100%にしておくのが自然です
 
-    // 自動再生をやめ、ユーザーのタップを待つ状態にする
+    // 自動再生ブロック回避のため、ここではspeakAIを呼ばずにタップを促す
     if (DOM.statusText) DOM.statusText.textContent = "タップして開始";
     if (DOM.micHint) DOM.micHint.textContent = "ここを押して会話をはじめる";
 
@@ -945,11 +931,10 @@ async function blobToFloat32(blob) {
 }
 
 /* =========================================================
-   Moonshine transcription (w/ Fallback)
+   Moonshine transcription (Pipeline ver)
    ========================================================= */
 
 async function transcribe(float32) {
-  // フォールバック用のローカル関数
   const getFallbackTranscript = () => {
     if (IS_IOS && iosLastTranscript) {
       const text = preprocessText(iosLastTranscript);
@@ -962,28 +947,20 @@ async function transcribe(float32) {
     return getFallbackTranscript();
   }
 
-  // Moonshineがロードされていれば優先して推論を試みる
-  if (model && processor && tokenizer) {
+  if (transcriber) {
     try {
-      const inputs = await processor(float32);
-      const outputs = await model.generate({
-        ...inputs,
-        max_new_tokens: 96
-      });
-      const text = tokenizer
-        .decode(outputs[0] || outputs, { skip_special_tokens: true })
-        .trim();
-
-      if (text && text.length > 0) {
-        return preprocessText(text);
+      const out = await transcriber(float32);
+      if (out && out.text) {
+        const text = out.text.trim();
+        if (text && text.length > 0) {
+          return preprocessText(text);
+        }
       }
     } catch (e) {
       console.warn("[Moonshine 推論エラー]", e);
-      // エラーが発生した場合は下のフォールバック処理へ流れる
     }
   }
 
-  // Moonshineのモデルが無い、もしくは推論エラーの場合はフォールバックを返す
   return getFallbackTranscript();
 }
 
@@ -1008,7 +985,8 @@ async function callLLM(messages) {
       console.warn("[LLM]", url, e);
     }
   }
-  return "そうなんですね。もう少し詳しく教えてもらえますか？";
+  // 固定文マシーン回避のためのフォールバック
+  return "ごめんなさい、ちょっと考えがまとまらなくて……。もう一度教えてもらえますか？";
 }
 
 /* =========================================================
@@ -1254,12 +1232,10 @@ async function processTurn() {
     lastAudioBlob = blob;
     DOM.statusText.textContent = "文字起こし中...";
 
-    // 以前はここでIS_IOSによる分岐をしていたが、transcribe()関数内に集約
     const float32 = await blobToFloat32(blob);
     let userText = await transcribe(float32);
 
     if (IS_IOS && (!userText || userText.length < 2)) {
-       // 万が一空になってしまった場合のセーフティネット
        userText = "今日は少し疲れました";
     }
 
@@ -1549,24 +1525,20 @@ function initScan() {
   }
 
   installAudioUnlock();
-  DOM.micBtn.addEventListener("touchstart", () => { unlockAudioContext(); }, { passive: true });
-  DOM.micBtn.addEventListener("pointerdown", () => { unlockAudioContext(); }, { passive: true });
 
-    DOM.micBtn.addEventListener("click", async () => {
+  // イベントリスナー内で isConversationStarted を判定
+  DOM.micBtn.addEventListener("click", async () => {
     await unlockAudioContext();
     if (!isModelReady || isSpeaking) return;
 
-    // 初回タップ時の処理（ここで初めて音声を鳴らす）
     if (!isConversationStarted) {
       isConversationStarted = true;
       
-      // 連打防止のため一時的にボタンを無効化
       DOM.micBtn.disabled = true;
       DOM.micBtn.classList.add("opacity-50");
       if (DOM.statusText) DOM.statusText.textContent = "準備中...";
       if (DOM.micHint) DOM.micHint.textContent = "AIが話します...";
 
-      // ここで確実にユーザーのタップ由来として再生される
       speakAI(currentOpening, () => {
         if (DOM.statusText) DOM.statusText.textContent = "タップして話す";
         if (DOM.micHint) DOM.micHint.textContent = "マイクを押して話し始めてください";
@@ -1575,14 +1547,12 @@ function initScan() {
           DOM.micBtn.classList.remove("opacity-50");
         }
       });
-      return; // 録音はまだ開始しない
+      return; // 初回は録音を開始せず会話スタートのみ
     }
 
-    // 2回目以降のタップは通常の録音スタート／ストップ
     if (isRecording) stopRecording();
     else await startRecording();
   });
-
 
   if (DOM.viewResultBtn) {
     DOM.viewResultBtn.addEventListener("click", () => {
