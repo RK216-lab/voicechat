@@ -1,29 +1,31 @@
-
 /* =========================================================
-   Restee 自分スキャン scan.js 完全版 vFinal
-   - +esm 404対策: esm.sh優先の多重CDN
-   - ort-wasm 404対策: wasmPathsを明示
-   - iOS競合対策: MediaRecorderとSRの排他
-   - onEnd二重呼び出し対策
-   - m4a/mp4対応
+   Restee 自分スキャン scan.js 完全版 vFixed
+   修正内容:
+   - Transformers.js: 複数CDNフォールバック維持, wasmPaths固定を削除
+   - ASR: dtype:q8強制を削除, device:"wasm" 基本形でロード
+   - iOS: MediaRecorder優先、Native SRは最終フォールバック
+   - MIME: audio/mp4優先 isTypeSupported確認
+   - OpenSMILE / Render へのBlob送信維持
+   - Edge TTS最優先 + Local MMSフォールバック維持
+   - Embedding独立、LocalTTS遅延ロード
    ========================================================= */
 
 const BACKEND_URL = "https://voicechat-gz4j.onrender.com";
 
-const ASR_MODEL_CANDIDATES = [
-  { id: "wmoto-ai/moonshine-tiny-ja-ONNX", dtype: "q8" },
-  { id: "onnx-community/moonshine-tiny-ja-ONNX", dtype: "q8" },
-  { id: "onnx-community/moonshine-base-ONNX", dtype: "q8" },
-  { id: "Xenova/whisper-tiny", dtype: "q8" }, // 最終フォールバック 軽量確実
-];
-const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
-const LOCAL_TTS_MODEL = "Xenova/mms-tts-jpn";
-
 const TRANSFORMERS_CANDIDATES = [
   "https://esm.sh/@huggingface/transformers@3.7.2",
   "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2/+esm",
-  "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.1/dist/transformers.js/+esm",
+  "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.1/dist/transformers.js/+esm"
 ];
+
+const ASR_MODEL_CANDIDATES = [
+  "wmoto-ai/moonshine-tiny-ja-ONNX",
+  "onnx-community/moonshine-tiny-ja-ONNX",
+  "Xenova/whisper-tiny"
+];
+
+const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
+const LOCAL_TTS_MODEL = "Xenova/mms-tts-jpn";
 
 const SILENCE_THRESHOLD = 0.011;
 const SILENCE_MS = 2200;
@@ -42,7 +44,7 @@ let mediaRecorder = null, audioChunks = [];
 let audioContext = null, analyserContext = null, analyser = null;
 let silenceStart = null, waveRaf = null, recordingTimeoutId = null;
 let currentTurn = 0, allUserTexts = [], lastAudioBlob = null, conversationLog = [], lastAcoustic = {}, currentOpening = "";
-let loadCopyTimer = null, recognition = null, iosLastTranscript = "", iosRecognitionStarted = false, iosStopResolver = null, iosNativeMode = false;
+let loadCopyTimer = null, recognition = null, iosLastTranscript = "", iosRecognitionStarted = false, iosStopResolver = null, iosNativeMode = false, useNativeASR = false;
 let audioUnlocked = false, playbackAudio = null, playbackObjectURL = null;
 
 const DOM = {};
@@ -66,8 +68,12 @@ function resetSessionState() {
 }
 function getSupportedMimeType() {
   if (typeof MediaRecorder === "undefined" ||!MediaRecorder.isTypeSupported) return "";
-  for (const t of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"]) try { if (MediaRecorder.isTypeSupported(t)) return t; } catch {}
+  const order = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/aac"];
+  for (const t of order) { try { if (MediaRecorder.isTypeSupported(t)) return t; } catch {} }
   return "";
+}
+function isMediaRecorderSupported() {
+  return typeof MediaRecorder!== "undefined" && typeof navigator.mediaDevices?.getUserMedia === "function";
 }
 function revokePlaybackURL() { if (playbackObjectURL) { try { URL.revokeObjectURL(playbackObjectURL); } catch {} playbackObjectURL = null; } }
 function createPlaybackAudio() {
@@ -126,10 +132,11 @@ async function importTransformersRobust() {
       const mod = await import(/* @vite-ignore */ url);
       const cand = mod.pipeline? mod : mod.default || mod;
       if (cand?.pipeline) { transformersModule = cand; console.log("[Transformers] loaded", url); return cand; }
-    } catch (e) { lastErr = e; console.warn("[Transformers] failed", url, e.message); }
+    } catch (e) { lastErr = e; console.warn("[Transformers] failed", url, e?.message || e); }
   }
   throw lastErr || new Error("transformers import failed");
 }
+
 async function loadEmbedder(pipelineFn, envObj) {
   try {
     if (!pipelineFn) { const mod = await importTransformersRobust(); pipelineFn = mod.pipeline; envObj = mod.env; }
@@ -137,17 +144,23 @@ async function loadEmbedder(pipelineFn, envObj) {
     defVectors = {}; const limit = IS_IOS? 3 : 999;
     for (const [k, texts] of Object.entries(FATIGUE_DEFS)) {
       const vecs = []; for (const t of texts.slice(0, limit)) { const out = await extractor(t, { pooling: "mean", normalize: true }); vecs.push(Array.from(out.data)); } defVectors[k] = vecs;
-    } isEmbedReady = true;
-  } catch (e) { console.warn("[Embedding]", e); isEmbedReady = false; }
+    } isEmbedReady = true; console.log("[Embedding] ready");
+  } catch (e) { console.warn("[Embedding] failed, heuristic fallback", e); isEmbedReady = false; throw e; }
 }
 async function loadLocalTTS() {
   if (isLocalTTSReady || window._localTTSLoading) return; window._localTTSLoading = true;
-  try { const { pipeline } = await importTransformersRobust(); localTTSPipeline = await pipeline("text-to-speech", LOCAL_TTS_MODEL, { dtype: "q8", device: "wasm" }); isLocalTTSReady = true; } catch (e) { console.warn("[Local TTS]", e); } finally { window._localTTSLoading = false; }
+  try {
+    const { pipeline } = await importTransformersRobust();
+    localTTSPipeline = await pipeline("text-to-speech", LOCAL_TTS_MODEL, { dtype: "q8", device: "wasm" });
+    isLocalTTSReady = true; console.log("[Local TTS] ready");
+  } catch (e) { console.warn("[Local TTS] failed", e); } finally { window._localTTSLoading = false; }
 }
+
 function cosine(a, b) { let s = 0; const n = Math.min(a.length, b.length); for (let i = 0; i < n; i++) s += a[i] * b[i]; return s; }
 function simToCategory(v, p) { if (!p?.length) return 0.5; const sims = p.map(x => cosine(v, x)); return 0.7 * Math.max(...sims) + 0.3 * sims.reduce((a, b) => a + b, 0) / sims.length; }
 function acousticFatigueProxy(f) { if (!f ||!Object.keys(f).length) return null; const get = (...keys) => { for (const k of keys) if (f[k]!= null && Number.isFinite(Number(f[k]))) return Number(f[k]); for (const k of Object.keys(f)) for (const w of keys) if ((k.endsWith(w) || k.includes(w)) && Number.isFinite(Number(f[k]))) return Number(f[k]); return null; }; const loud = get("loudness_sma3_amean"), jitter = get("jitterLocal_sma3nz_amean"), hnr = get("HNRdBACF_sma3nz_amean"); let sc = 50; if (loud!= null) sc += (0.35 - loud) * 60; if (jitter!= null) sc += (jitter - 0.02) * 400; if (hnr!= null) sc += (8 - hnr) * 2.5; return Math.max(20, Math.min(88, Math.round(sc))); }
 function heuristicTextScores(t) { let ph = 42, br = 42, me = 42; if (/肩|首|腰|だるい|重い|体|眠い|目が疲/.test(t)) ph += 22; if (/集中|ぼんやり|頭|忘れ|ミス|判断|モヤ|整理/.test(t)) br += 22; if (/イライラ|不安|ストレス|やる気|落ち込|しんどい|つらい|ざわ/.test(t)) me += 22; if (/元気|調子いい|大丈夫|問題ない|すっきり/.test(t)) { ph -= 18; br -= 18; me -= 18; } const mod = analyzeModifiers(t); ph = Math.max(15, Math.min(92, Math.round(ph * mod.scale))); br = Math.max(15, Math.min(92, Math.round(br * mod.scale))); me = Math.max(15, Math.min(92, Math.round(me * mod.scale))); if (mod.negated) { ph = Math.min(ph, 40); br = Math.min(br, 40); me = Math.min(me, 40); } return { physical: ph, brain: br, mental: me, total: Math.max(22, Math.min(92, Math.round(100 - ((ph + br + me) / 3) * 0.88))) }; }
+
 async function scoreFromText(userText, acoustic) {
   const cleaned = preprocessText(userText); const mod = analyzeModifiers(userText || cleaned); let es;
   if (!isEmbedReady ||!extractor ||!defVectors) es = heuristicTextScores(cleaned);
@@ -167,7 +180,7 @@ async function scoreFromBackend(blob, text) {
 async function scoreWithFallback(userText, acoustic, blob) {
   window.lastEmbedRaw = null;
   try { if (isEmbedReady && extractor && defVectors) { const out = await extractor(userText || "特になし", { pooling: "mean", normalize: true }); const v = Array.from(out.data); window.lastEmbedRaw = { body: simToCategory(v, defVectors.body), brain: simToCategory(v, defVectors.brain), mental: simToCategory(v, defVectors.mental), healthy: simToCategory(v, defVectors.healthy) }; } } catch {}
-  if (blob) { try { if (DOM.statusText) DOM.statusText.textContent = "分析中..."; return await scoreFromBackend(blob, userText); } catch (e) { console.warn("[backend fallback]", e); } }
+  if (blob) { try { if (DOM.statusText) DOM.statusText.textContent = "分析中..."; return await scoreFromBackend(blob, userText); } catch (e) { console.warn("[backend fallback to local]", e); } }
   return await scoreFromText(userText, acoustic);
 }
 function pickRecovery(scores) { const entries = [["body", scores.physical], ["brain", scores.brain], ["mental", scores.mental]].sort((a, b) => b[1] - a[1]); const list = []; const [topKey] = entries[0]; const [secKey, secVal] = entries[1]; list.push(...RECOVERY[topKey].slice(0, 2)); if (secVal >= 55) list.push(RECOVERY[secKey][0]); list.push((scores.physical + scores.brain + scores.mental) / 3 >= 60? RECOVERY.general[1] : RECOVERY.general[0]); const seen = new Set(), uniq = []; for (const it of list) if (!seen.has(it.title)) { seen.add(it.title); uniq.push(it); } return { topKey, suggestions: uniq.slice(0, 4) }; }
@@ -177,7 +190,7 @@ function applyScoreUI(scores) { const totalEl = document.getElementById("scoreTo
 function startLoadCopyRotation() { let i = 0; if (DOM.statusText) DOM.statusText.textContent = LOAD_COPIES[0]; loadCopyTimer = setInterval(() => { i = (i + 1) % LOAD_COPIES.length; if (DOM.statusText) DOM.statusText.textContent = LOAD_COPIES[i]; }, 2200); }
 function stopLoadCopyRotation() { if (loadCopyTimer) { clearInterval(loadCopyTimer); loadCopyTimer = null; } }
 function updateProgress(p, label) { const c = Math.max(0, Math.min(100, p)); if (DOM.progressBar) DOM.progressBar.style.width = c + "%"; if (DOM.progressText) DOM.progressText.textContent = label || `${c}%`; }
-function setupIOSRecognition() { const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return null; const rec = new SR(); rec.lang = "ja-JP"; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1; rec.onstart = () => { iosRecognitionStarted = true; }; rec.onresult = e => { let finalText = ""; for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) finalText += e.results[i][0]?.transcript || ""; if (finalText.trim()) iosLastTranscript = (iosLastTranscript + " " + finalText).trim(); }; rec.onerror = e => { console.warn("[SR]", e.error); }; rec.onend = () => { iosRecognitionStarted = false; if (iosStopResolver) { iosStopResolver(); iosStopResolver = null; } }; return rec; }
+function setupIOSRecognition() { const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return null; const rec = new SR(); rec.lang = "ja-JP"; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1; rec.onstart = () => { iosRecognitionStarted = true; }; rec.onresult = e => { let finalText = ""; for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) finalText += e.results[i][0]?.transcript || ""; if (finalText.trim()) iosLastTranscript = (iosLastTranscript + " " + finalText).trim(); }; rec.onerror = e => { console.warn("[SR] error", e.error); }; rec.onend = () => { iosRecognitionStarted = false; if (iosStopResolver) { iosStopResolver(); iosStopResolver = null; } }; return rec; }
 function stopIOSRecognitionAsync() { return new Promise(resolve => { if (!recognition ||!iosRecognitionStarted) { resolve(); return; } iosStopResolver = resolve; try { recognition.stop(); } catch { resolve(); } setTimeout(() => { if (iosStopResolver) { iosStopResolver(); iosStopResolver = null; } resolve(); }, 800); }); }
 
 async function loadModel() {
@@ -186,50 +199,84 @@ async function loadModel() {
     recognition = setupIOSRecognition();
 
     const { pipeline, env } = await importTransformersRobust();
-    // 修正: wasmパスを明示して404対策、iOSは1スレッド
-    env.allowLocalModels = false; env.useBrowserCache = true;
+    // 最重要: wasmPathsを固定しない。Transformers.jsに管理させる
+    env.allowLocalModels = false;
+    env.useBrowserCache = true;
+    // スレッド数とSIMDのみ任意設定、パスは触らない
     if (env.backends?.onnx?.wasm) {
-      env.backends.onnx.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
-      env.backends.onnx.wasm.numThreads = IS_IOS ? 1 : (navigator.hardwareConcurrency || 4);
-      env.backends.onnx.wasm.simd = true;
+      try { env.backends.onnx.wasm.numThreads = IS_IOS? 1 : (navigator.hardwareConcurrency || 4); } catch {}
+      try { env.backends.onnx.wasm.simd = true; } catch {}
     }
 
-    updateProgress(20, "20%");
-    const embedPromise = loadEmbedder(pipeline, env).catch(() => {});
+    updateProgress(15, "15%");
 
-    let lastAsrErr = null;
-    for (const { id, dtype } of ASR_MODEL_CANDIDATES) {
+    let lastAsrError = null;
+    // ASRロード: dtype強制なし、device:wasmのみ
+    for (const modelId of ASR_MODEL_CANDIDATES) {
       try {
-        console.log(`[ASR] trying ${id}`);
-        if (DOM.statusText) DOM.statusText.textContent = `モデル読込中… ${id.split('/').pop()}`;
-        transcriber = await pipeline("automatic-speech-recognition", id, {
-          dtype, device: "wasm",
-          progress_callback: (p) => {
-            if (p.status === "progress" && p.progress) updateProgress(20 + (p.progress/100)*50, `${Math.round(20 + (p.progress/100)*50)}%`);
-            console.log("[ASR progress]", p);
+        console.log(`[ASR] trying ${modelId}`);
+        if (DOM.statusText) DOM.statusText.textContent = `モデル読込中… ${modelId.split('/').pop()}`;
+        transcriber = await pipeline(
+          "automatic-speech-recognition",
+          modelId,
+          {
+            device: "wasm",
+            progress_callback: (p) => {
+              if (p.status === "progress" && p.progress) updateProgress(15 + (p.progress / 100) * 55, `${Math.round(15 + (p.progress / 100) * 55)}%`);
+              console.log("[ASR progress]", p);
+            }
           }
-        });
-        console.log(`[ASR] OK ${id}`); break;
-      } catch (e) { lastAsrErr = e; console.warn(`[ASR] failed ${id}`, e); transcriber = null; }
+        );
+        console.log(`[ASR] loaded ${modelId}`); break;
+      } catch (e) {
+        lastAsrError = e;
+        console.error("[ASR] FAILED:", modelId, e);
+        transcriber = null;
+      }
     }
-    if (!transcriber) throw lastAsrErr || new Error("All ASR models failed");
 
-    updateProgress(70, "70%"); await embedPromise; updateProgress(100, "100%"); stopLoadCopyRotation();
-    iosNativeMode = IS_IOS &&!transcriber; isModelReady =!!(transcriber || recognition);
-    if (!isModelReady) throw new Error("no STT");
+    if (!transcriber) {
+      console.error("[ASR] ALL FAILED:", lastAsrError?.stack || lastAsrError?.message || String(lastAsrError));
+      if (recognition) {
+        console.warn("[ASR] fallback to Native SpeechRecognition (keep MediaRecorder for Blob)");
+        useNativeASR = true;
+        isModelReady = true;
+        // iOSでもMediaRecorderが使えるなら純粋SRモードにはしない
+        iosNativeMode =!isMediaRecorderSupported();
+      } else {
+        throw lastAsrError || new Error("All ASR models failed and no SpeechRecognition");
+      }
+    } else {
+      isModelReady = true;
+      useNativeASR = false;
+      iosNativeMode = false;
+    }
+
+    updateProgress(75, "75%");
+    // EmbeddingはASRと独立、失敗してもASRは維持
+    try {
+      await loadEmbedder(pipeline, env);
+    } catch (e) {
+      console.warn("[Embedding] continue with heuristic", e);
+      isEmbedReady = false;
+    }
+
+    updateProgress(100, "100%"); stopLoadCopyRotation();
     currentOpening = OPENINGS[Math.floor(Math.random() * OPENINGS.length)];
     if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = currentOpening.replace(/。/g, "。<br>");
     conversationLog = [{ role: "assistant", content: currentOpening }];
     if (DOM.micBtn) { DOM.micBtn.disabled = false; DOM.micBtn.classList.remove("opacity-50"); }
     setMicUI(false);
-    if (DOM.statusText) DOM.statusText.textContent = "タップして開始";
+    if (DOM.statusText) DOM.statusText.textContent = useNativeASR? "軽量モードで開始（タップ）" : "タップして開始";
     if (DOM.micHint) DOM.micHint.textContent = "ここを押して会話をはじめる";
   } catch (e) {
-    console.error("[loadModel]", e); stopLoadCopyRotation();
-    if (DOM.statusText) DOM.statusText.textContent = `読込失敗: ${e.message}`;
-    if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = `読込失敗: ${e.message}<br>タップで再試行`;
+    console.error("[loadModel] fatal", e);
+    stopLoadCopyRotation();
+    const shortMsg = (e?.message || String(e)).slice(0, 80);
+    if (DOM.statusText) DOM.statusText.textContent = `読込失敗: ${shortMsg}`;
+    if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = `読込失敗: ${shortMsg}<br>タップで再試行`;
     if (DOM.micBtn) { DOM.micBtn.disabled = false; DOM.micBtn.classList.remove("opacity-50"); }
-    if (recognition) { isModelReady = true; iosNativeMode = true; if (DOM.statusText) DOM.statusText.textContent = "軽量モードで開始（タップ）"; currentOpening = OPENINGS[0]; conversationLog = [{ role: "assistant", content: currentOpening }]; if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = currentOpening; }
+    if (recognition) { isModelReady = true; useNativeASR = true; iosNativeMode =!isMediaRecorderSupported(); if (DOM.statusText) DOM.statusText.textContent = "軽量モードで開始（タップ）"; currentOpening = OPENINGS[0]; conversationLog = [{ role: "assistant", content: currentOpening }]; if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = currentOpening; }
   }
 }
 
@@ -247,7 +294,7 @@ async function blobToFloat32(blob) {
 async function transcribe(float32) {
   const getFallback = () => { const t = preprocessText(iosLastTranscript); return t.length >= 2? t : ""; };
   if (!float32?.length) return getFallback() || "（聞き取れませんでした）";
-  if (transcriber) { try { let out; try { out = await transcriber({ array: float32, sampling_rate: 16000 }); } catch { out = await transcriber(float32); } if (out?.text?.trim()) return preprocessText(out.text); } catch (e) { console.warn("[Moonshine]", e); } }
+  if (transcriber) { try { let out; try { out = await transcriber({ array: float32, sampling_rate: 16000 }); } catch { out = await transcriber(float32); } if (out?.text?.trim()) return preprocessText(out.text); } catch (e) { console.warn("[Moonshine transcribe]", e); } }
   return getFallback() || "（聞き取れませんでした）";
 }
 async function callLLM(messages) {
@@ -269,30 +316,47 @@ function stopWaveAnim() { if (waveRaf) { cancelAnimationFrame(waveRaf); waveRaf 
 
 async function startRecording() {
   if (!isModelReady || isRecording || isSpeaking) return;
-  if (typeof MediaRecorder === "undefined" &&!iosNativeMode) { if (DOM.statusText) DOM.statusText.textContent = "この端末は録音に未対応です"; return; }
+  if (!isMediaRecorderSupported() &&!recognition) { if (DOM.statusText) DOM.statusText.textContent = "この端末は録音に未対応です"; return; }
   await unlockAudioContext();
-  if (iosNativeMode && recognition) {
+
+  // 純粋 Native SR モード (MediaRecorder非対応端末のみ)
+  if (!isMediaRecorderSupported() && recognition) {
     iosLastTranscript = ""; isRecording = true; DOM.waveContainer?.classList.remove("hidden"); if (DOM.statusText) DOM.statusText.textContent = "あなたのお話を聞いています..."; setMicUI(true);
     try { recognition.start(); } catch { isRecording = false; setMicUI(false); return; }
     recordingTimeoutId = setTimeout(() => { if (isRecording) stopRecording(); }, MAX_RECORDING_MS); return;
   }
+
+  // 通常: MediaRecorder優先 (iOS含む)
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     const mimeType = getSupportedMimeType(); audioChunks = []; iosLastTranscript = "";
     mediaRecorder = new MediaRecorder(stream, mimeType? { mimeType } : {});
     mediaRecorder.ondataavailable = e => { if (e.data?.size) audioChunks.push(e.data); };
-    mediaRecorder.onstop = async () => { stream.getTracks().forEach(t => t.stop()); stopWaveAnim(); if (recordingTimeoutId) { clearTimeout(recordingTimeoutId); recordingTimeoutId = null; } if (analyserContext) { try { if (analyserContext.state!== "closed") await analyserContext.close(); } catch {} analyserContext = null; analyser = null; } await stopIOSRecognitionAsync(); await processTurn(); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop()); stopWaveAnim();
+      if (recordingTimeoutId) { clearTimeout(recordingTimeoutId); recordingTimeoutId = null; }
+      if (analyserContext) { try { if (analyserContext.state!== "closed") await analyserContext.close(); } catch {} analyserContext = null; analyser = null; }
+      await stopIOSRecognitionAsync();
+      await processTurn();
+    };
     const AC = window.AudioContext || window.webkitAudioContext;
     if (AC) { analyserContext = new AC(); if (analyserContext.state === "suspended") await analyserContext.resume(); const src = analyserContext.createMediaStreamSource(stream); analyser = analyserContext.createAnalyser(); analyser.fftSize = 512; src.connect(analyser); }
     mediaRecorder.start(200); isRecording = true; silenceStart = null;
     DOM.waveContainer?.classList.remove("hidden"); if (DOM.statusText) DOM.statusText.textContent = "あなたのお話を聞いています..."; setMicUI(true);
-    if (!AVOID_CONCURRENCY && recognition &&!transcriber) { try { recognition.start(); } catch {} }
+    // Moonshine失敗時はMediaRecorder + SR並走で文字起こし確保、BlobはOpenSMILEへ
+    if (useNativeASR && recognition) { try { recognition.start(); } catch {} }
+    else if (!AVOID_CONCURRENCY && recognition &&!transcriber) { try { recognition.start(); } catch {} }
     recordingTimeoutId = setTimeout(() => { if (isRecording) stopRecording(); }, MAX_RECORDING_MS); loopMonitor();
   } catch (e) { console.error(e); isRecording = false; if (DOM.statusText) DOM.statusText.textContent = "マイクの許可が必要です。設定を確認してください"; setMicUI(false); }
 }
 function stopRecording() {
   if (!isRecording) return;
-  if (iosNativeMode) { isRecording = false; DOM.waveContainer?.classList.add("hidden"); if (DOM.statusText) DOM.statusText.textContent = "認識中..."; setMicUI(false); if (recordingTimeoutId) { clearTimeout(recordingTimeoutId); recordingTimeoutId = null; } (async () => { await stopIOSRecognitionAsync(); await processTurn(); })(); return; }
+  // 純粋SR
+  if (!isMediaRecorderSupported()) {
+    isRecording = false; DOM.waveContainer?.classList.add("hidden"); if (DOM.statusText) DOM.statusText.textContent = "認識中..."; setMicUI(false);
+    if (recordingTimeoutId) { clearTimeout(recordingTimeoutId); recordingTimeoutId = null; }
+    (async () => { await stopIOSRecognitionAsync(); await processTurn(); })(); return;
+  }
   if (!mediaRecorder) return; isRecording = false; DOM.waveContainer?.classList.add("hidden"); if (DOM.statusText) DOM.statusText.textContent = "認識中..."; setMicUI(false); try { mediaRecorder.stop(); } catch {}
 }
 function loopMonitor() {
@@ -302,14 +366,35 @@ function afterSpeakThenRecord() { setTimeout(() => { if (isModelReady && current
 
 async function processTurn() {
   try {
-    let blob = null; if (!iosNativeMode) { const mt = mediaRecorder?.mimeType || getSupportedMimeType() || "audio/webm"; blob = new Blob(audioChunks, { type: mt }); if (!blob.size) throw new Error("empty"); lastAudioBlob = blob; }
+    let blob = null;
+    if (audioChunks.length > 0) {
+      const mt = mediaRecorder?.mimeType || getSupportedMimeType() || "audio/webm";
+      blob = new Blob(audioChunks, { type: mt });
+      if (!blob.size) blob = null;
+    }
+    if (blob) lastAudioBlob = blob; // 絶対に破棄しない
+
     if (DOM.statusText) DOM.statusText.textContent = "文字起こし中...";
-    let float32 = new Float32Array(0); if (blob) float32 = await blobToFloat32(blob);
-    let userText = iosNativeMode? (preprocessText(iosLastTranscript) || "（聞き取れませんでした）") : await transcribe(float32);
+    let float32 = new Float32Array(0);
+    if (blob) float32 = await blobToFloat32(blob);
+
+    let userText = "";
+    if (transcriber) {
+      userText = await transcribe(float32);
+      // Moonshine失敗時の保険でSR文字起こしがあれば使う
+      if (userText.includes("聞き取れませんでした") && iosLastTranscript) {
+        const t = preprocessText(iosLastTranscript);
+        if (t.length >= 2) userText = t;
+      }
+    } else {
+      userText = preprocessText(iosLastTranscript) || "（聞き取れませんでした）";
+    }
+
     allUserTexts.push(userText); conversationLog.push({ role: "user", content: userText }); currentTurn++;
+
     if (currentTurn === 1) {
       if (DOM.statusText) DOM.statusText.textContent = "AIが考えています..."; updateProgress(35, "35%");
-      if (!iosNativeMode && blob) getAcoustic(blob).then(f => { lastAcoustic = f; }).catch(() => {});
+      if (blob) getAcoustic(blob).then(f => { lastAcoustic = f; }).catch(() => {});
       const messages = [{ role: "system", content: buildTurnSystem("followup", currentOpening) },...conversationLog];
       const reply = (await callLLM(messages)).trim() || "そうなんですね。もう少し詳しく教えてもらえますか？";
       conversationLog.push({ role: "assistant", content: reply }); if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/\n/g, "<br>"); speakAI(reply, afterSpeakThenRecord); return;
@@ -349,17 +434,32 @@ async function speakWithLocalMMS(text) {
   try { for (const ch of chunks) { if (!ch.trim()) continue; const out = await localTTSPipeline(ch); const buf = ctx.createBuffer(1, out.audio.length, out.sampling_rate); buf.getChannelData(0).set(out.audio); const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); await new Promise(r => { src.onended = r; src.start(); }); } } finally { try { await ctx.close(); } catch {} }
 }
 async function speakAI(text, onEnd, maxRetries = 1) {
-  if (!text?.trim()) { onEnd?.(); return; } if (isSpeaking) { onEnd && onEnd(); return; } isSpeaking = true; let hasEnded = false; const safeEnd = () => { if (!hasEnded) { hasEnded = true; try { onEnd?.(); } catch {} } }; const prev = DOM.statusText?.textContent || ""; if (DOM.statusText) DOM.statusText.textContent = "AIが話しています..."; if (DOM.micBtn) { DOM.micBtn.disabled = true; DOM.micBtn.classList.add("opacity-50"); }
+  if (!text?.trim()) { onEnd?.(); return; }
+  if (isSpeaking || isRecording) { // 録音中はTTS禁止、TTS中は録音禁止
+    if (isSpeaking) { onEnd?.(); return; }
+    if (isRecording) { onEnd?.(); return; }
+  }
+  isSpeaking = true; let hasEnded = false;
+  const safeEnd = () => { if (!hasEnded) { hasEnded = true; isSpeaking = false; try { onEnd?.(); } catch {} } };
+  const prev = DOM.statusText?.textContent || "";
+  if (DOM.statusText) DOM.statusText.textContent = "AIが話しています...";
+  if (DOM.micBtn) { DOM.micBtn.disabled = true; DOM.micBtn.classList.add("opacity-50"); }
   let lastErr = null;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try { await speakWithBackend(text); lastErr = null; break; } catch (e) { lastErr = e; console.warn(`[TTS backend ${attempt}]`, e.message); }
-    if (isLocalTTSReady ||!IS_IOS) { try { if (DOM.statusText) DOM.statusText.textContent = "音声を準備中..."; await speakWithLocalMMS(text); lastErr = null; break; } catch (e) { lastErr = e; console.warn(`[TTS local ${attempt}]`, e.message); await new Promise(r => setTimeout(r, 600)); } } else { break; }
+    try { await speakWithBackend(text); lastErr = null; break; }
+    catch (e) { lastErr = e; console.warn(`[TTS backend ${attempt}]`, e.message); }
+    // Edge失敗時のみローカルMMSへフォールバック
+    try {
+      if (DOM.statusText) DOM.statusText.textContent = "音声を準備中...";
+      await speakWithLocalMMS(text); lastErr = null; break;
+    } catch (e) { lastErr = e; console.warn(`[TTS local ${attempt}]`, e.message); await new Promise(r => setTimeout(r, 600)); }
   }
-  if (DOM.statusText) DOM.statusText.textContent = prev; isSpeaking = false;
+  if (DOM.statusText) DOM.statusText.textContent = prev;
   if (isModelReady && DOM.viewResultBtn?.classList.contains("hidden") && DOM.micBtn) { DOM.micBtn.disabled = false; DOM.micBtn.classList.remove("opacity-50"); }
   if (lastErr && DOM.statusText) DOM.statusText.textContent = "音声を再生できませんでした。タップして続行";
-  safeEnd();
+  safeEnd(); // 必ず一度だけ
 }
+
 function initScan() {
   bindDOM(); if (!DOM.micBtn) return; resetSessionState(); installAudioUnlock(); let handling = false;
   DOM.micBtn.addEventListener("click", async () => {
