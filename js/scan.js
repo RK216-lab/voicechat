@@ -2,7 +2,21 @@
    Restee 自分スキャン scan.js 完全版 vFixed-Patched
    ========================================================= */
 
+// 音声再生の制限解除用関数
+function installAudioUnlock() {
+  const unlock = () => {
+    const context = new (window.AudioContext || window.webkitAudioContext)();
+    if (context.state === 'suspended') {
+      context.resume();
+    }
+    document.removeEventListener('click', unlock);
+    document.removeEventListener('touchstart', unlock);
+  };
+  document.addEventListener('click', unlock);
+  document.addEventListener('touchstart', unlock);
+}
 const BACKEND_URL = "https://voicechat-9w4o.onrender.com";
+
 
 const TRANSFORMERS_CANDIDATES = [
   "https://esm.sh/@huggingface/transformers@3.7.2",
