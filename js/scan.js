@@ -17,7 +17,7 @@ const ASR_MODEL_CANDIDATES = [
 ];
 
 const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
-const LOCAL_TTS_MODEL = "Xenova/mms-tts-jpn";
+const LOCAL_TTS_MODEL = null; // DISABLED 401
 
 const SILENCE_THRESHOLD = 0.011;
 const SILENCE_MS = 2200;
@@ -239,18 +239,12 @@ async function loadEmbedder(pipelineFn, envObj) {
 }
 
 async function loadLocalTTS() {
-  if (isLocalTTSReady || window._localTTSLoading) return;
-  window._localTTSLoading = true;
-  try {
-    const { pipeline } = await importTransformersRobust();
-    localTTSPipeline = await pipeline("text-to-speech", LOCAL_TTS_MODEL, { dtype: "q8", device: "wasm" });
-    isLocalTTSReady = true;
-    console.log("[Local TTS] ready");
-  } catch (e) {
-    console.warn("[Local TTS] failed", e);
-  } finally {
-    window._localTTSLoading = false;
-  }
+  // ★修正: Xenova/mms-tts-jpn はHFで401なので完全無効化。Renderの /tts を使う
+  console.log("[Local TTS] disabled - using backend edge-tts (ja-JP-NanamiNeural)");
+  isLocalTTSReady = false;
+  localTTSPipeline = null;
+  window._localTTSLoading = false;
+  return null;
 }
 
 function cosine(a, b) {
@@ -342,6 +336,35 @@ async function scoreFromText(userText, acoustic) {
   }
   return es;
 }
+
+
+// ★追加: Groq Whisper Turbo を使った軽量STT (ユーザ要望)
+async function transcribeWithGroq(blob) {
+  if (!blob || !blob.size) return "";
+  try {
+    const fd = new FormData();
+    const ext = getAudioExtension(blob);
+    fd.append("file", blob, `recording.${ext}`);
+    console.log(`[Groq STT] sending ${blob.size} bytes as ${ext}`);
+    const res = await fetch(`${BACKEND_URL}/transcribe`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.warn("[Groq STT] failed", res.status, err.slice(0,200));
+      throw new Error(err);
+    }
+    const data = await res.json();
+    const t = (data.text || "").trim();
+    console.log("[Groq STT] OK:", t);
+    return t;
+  } catch (e) {
+    console.warn("[Groq STT] error, will fallback to local", e.message);
+    return "";
+  }
+}
+
 
 function getAudioExtension(blob) {
   const mime = (blob?.type || "").toLowerCase();
@@ -594,11 +617,9 @@ async function loadModel() {
     }
 
     updateProgress(90, "90%");
-    try {
-      await loadLocalTTS();
-    } catch (e) {
-      console.warn("[Local TTS] continue with backend", e);
-    }
+    // Local TTSは無効化済み - スキップ
+    console.log("[Load] Local TTS skipped, using backend");
+    isLocalTTSReady = false;
 
     updateProgress(100, "100%");
     stopLoadCopyRotation();
@@ -682,14 +703,23 @@ async function blobToFloat32(blob) {
   }
 }
 
-async function transcribe(float32) {
+async function transcribe(float32, originalBlob) {
   const getFallback = () => {
     const t = preprocessText(iosLastTranscript);
     return t.length >= 2 ? t : "";
   };
 
+  // ★優先: Groq Whisper Turbo (最軽量・高精度・日本語対応)
+  if (originalBlob) {
+    const groqText = await transcribeWithGroq(originalBlob);
+    if (groqText && groqText.length >= 1 && !groqText.includes("聞き取れませんでした")) {
+      return preprocessText(groqText);
+    }
+  }
+
   if (!float32?.length) return getFallback() || "（聞き取れませんでした）";
 
+  // フォールバック: ローカル Moonshine
   if (transcriber) {
     try {
       const out = await transcriber(float32, {
@@ -944,15 +974,11 @@ async function processTurn() {
     let float32 = new Float32Array(0);
     if (blob) float32 = await blobToFloat32(blob);
 
-    let userText = "";
-    if (transcriber) {
-      userText = await transcribe(float32);
-      if (userText.includes("聞き取れませんでした") && iosLastTranscript) {
-        const t = preprocessText(iosLastTranscript);
-        if (t.length >= 2) userText = t;
-      }
-    } else {
-      userText = preprocessText(iosLastTranscript) || "（聞き取れませんでした）";
+    // ★Groq Whisper Turboを最優先で使用 (ユーザ要望: STTはgroqAPI, 軽量)
+    let userText = await transcribe(float32, blob);
+    if (userText.includes("聞き取れませんでした") && iosLastTranscript) {
+      const t = preprocessText(iosLastTranscript);
+      if (t.length >= 2) userText = t;
     }
 
     allUserTexts.push(userText);
@@ -1066,29 +1092,11 @@ async function speakWithBackend(text) {
 }
 
 async function speakWithLocalMMS(text) {
-  if (!isLocalTTSReady) await loadLocalTTS();
-  if (!localTTSPipeline) throw new Error("local TTS not ready");
-  const chunks = text.match(/.{1,120}(。|、|．|！|？|$)/g) || [text];
-  const AC = window.AudioContext || window.webkitAudioContext;
-  const ctx = new AC();
-  if (ctx.state === "suspended") await ctx.resume();
-  try {
-    for (const ch of chunks) {
-      if (!ch.trim()) continue;
-      const out = await localTTSPipeline(ch);
-      const buf = ctx.createBuffer(1, out.audio.length, out.sampling_rate);
-      buf.getChannelData(0).set(out.audio);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ctx.destination);
-      await new Promise(r => { src.onended = r; src.start(); });
-    }
-  } finally {
-    try { await ctx.close(); } catch {}
-  }
+  // ローカルTTS無効化 - バックエンドを使うので呼ばれない
+  throw new Error("local TTS disabled");
 }
 
-async function speakAI(text, onEnd, maxRetries = 1) {
+async function speakAI(text, onEnd) {
   if (!text?.trim()) { onEnd?.(); return; }
   if (isSpeaking || isRecording) {
     if (isSpeaking) { onEnd?.(); return; }
@@ -1110,25 +1118,12 @@ async function speakAI(text, onEnd, maxRetries = 1) {
     DOM.micBtn.classList.add("opacity-50");
   }
   let lastErr = null;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      await speakWithBackend(text);
-      lastErr = null;
-      break;
-    } catch (e) {
-      lastErr = e;
-      console.warn(`[TTS backend ${attempt}]`, e.message);
-    }
-    try {
-      if (DOM.statusText) DOM.statusText.textContent = "音声を準備中...";
-      await speakWithLocalMMS(text);
-      lastErr = null;
-      break;
-    } catch (e) {
-      lastErr = e;
-      console.warn(`[TTS local ${attempt}]`, e.message);
-      await new Promise(r => setTimeout(r, 600));
-    }
+  // ★バックエンドTTSのみ (edge-tts Nanami) - 軽量で高品質、401エラー回避
+  try {
+    await speakWithBackend(text);
+  } catch (e) {
+    lastErr = e;
+    console.warn(`[TTS backend]`, e.message);
   }
   if (DOM.statusText) DOM.statusText.textContent = prev;
   if (isModelReady && DOM.viewResultBtn?.classList.contains("hidden") && DOM.micBtn) {

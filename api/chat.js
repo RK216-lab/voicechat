@@ -9,7 +9,7 @@ const corsHeaders = {
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json',...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
 }
 
@@ -25,44 +25,39 @@ function getFallbackText(messages) {
 }
 
 export default async function handler(req) {
-  // 修正#1 OPTIONS対応
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
-  if (req.method!== 'POST') {
+  if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405, headers: corsHeaders });
   }
 
   let body;
-  try {
-    body = await req.json();
-  } catch {
-    return jsonResponse({ error: 'Invalid JSON' }, 400);
-  }
+  try { body = await req.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400); }
 
   const messages = body.messages;
-  // 修正#5 バリデーション
   if (!Array.isArray(messages) || messages.length === 0) {
     return jsonResponse({ error: 'messages is required' }, 400);
   }
 
   const apiKey = process.env.GROQ_API_KEY;
   const stream = body.stream === true;
-  // 修正#6 コスト対策でクランプ
-  const maxTokens = Math.min(Math.max(parseInt(body.max_tokens || 120, 10) || 120, 20), 200);
+  // ★gpt-ossは推論トークンを食うので300-800にクランプ。200以下だと空文字になる
+  const requested = parseInt(body.max_tokens || body.max_completion_tokens || 400, 10) || 400;
+  const maxCompletion = Math.min(Math.max(requested, 300), 800);
 
-  // 修正#3 APIキー無しでも会話を止めない
   if (!apiKey) {
-    console.warn('[Chat] GROQ_API_KEY missing, using fallback');
+    console.warn('[Chat] GROQ_API_KEY missing on Vercel');
     return jsonResponse({ text: getFallbackText(messages), fallback: true });
   }
 
+  // ★GPT-OSS-20B固定 最軽量設定
   const payload = {
     model: 'openai/gpt-oss-20b',
     messages,
-    reasoning_effort: 'low',
+    reasoning_effort: 'low', // 最軽量推論
     temperature: 0.75,
-    max_completion_tokens: maxTokens,
+    max_completion_tokens: maxCompletion,
     stream,
   };
 
@@ -78,39 +73,31 @@ export default async function handler(req) {
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error(`[Groq error] ${response.status} ${errText}`);
-      // 修正#4 エラーでも200でフォールバックテキストを返して会話継続
+      console.error(`[Groq gpt-oss error] ${response.status} ${errText}`);
       return jsonResponse({
         text: getFallbackText(messages),
         fallback: true,
-        groq_error: errText,
+        groq_error: errText.slice(0, 800),
       });
     }
 
     if (stream) {
-      // ストリーミングはそのままパススルー
       return new Response(response.body, {
         status: 200,
         headers: {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache, no-store',
           Connection: 'keep-alive',
-         ...corsHeaders,
+          ...corsHeaders,
         },
       });
     }
 
     const data = await response.json();
     const textOut = data.choices?.[0]?.message?.content || getFallbackText(messages);
-
     return jsonResponse({ text: textOut });
   } catch (error) {
     console.error('[Chat handler error]', error);
-    // 修正#4 絶対に会話を止めない
-    return jsonResponse({
-      text: getFallbackText(messages),
-      fallback: true,
-      error: error.message,
-    });
+    return jsonResponse({ text: getFallbackText(messages), fallback: true, error: error.message });
   }
 }
