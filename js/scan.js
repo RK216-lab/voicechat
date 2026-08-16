@@ -11,13 +11,10 @@ const TRANSFORMERS_CANDIDATES = [
   "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.1/dist/transformers.js/+esm"
 ];
 
-const ASR_MODEL_CANDIDATES = [
-  "wmoto-ai/moonshine-tiny-ja-ONNX",
-  "onnx-community/Moonshine-tiny-ONNX"
-];
+const ASR_MODEL_CANDIDATES = []; // v4: Moonshine完全無効化 - attention_maskバグ回避、Groqのみ
 
 const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
-const LOCAL_TTS_MODEL = null; // DISABLED 401
+const LOCAL_TTS_MODEL = null;
 
 const SILENCE_THRESHOLD = 0.011;
 const SILENCE_MS = 2200;
@@ -238,14 +235,7 @@ async function loadEmbedder(pipelineFn, envObj) {
   }
 }
 
-async function loadLocalTTS() {
-  // ★修正: Xenova/mms-tts-jpn はHFで401なので完全無効化。Renderの /tts を使う
-  console.log("[Local TTS] disabled - using backend edge-tts (ja-JP-NanamiNeural)");
-  isLocalTTSReady = false;
-  localTTSPipeline = null;
-  window._localTTSLoading = false;
-  return null;
-}
+async function loadLocalTTS() { console.log("[Local TTS] disabled"); isLocalTTSReady=false; return null; }
 
 function cosine(a, b) {
   let s = 0;
@@ -338,33 +328,46 @@ async function scoreFromText(userText, acoustic) {
 }
 
 
-// ★追加: Groq Whisper Turbo を使った軽量STT (ユーザ要望)
-async function transcribeWithGroq(blob) {
+// v4: Groq Whisper Turbo + Renderスリープ対応リトライ
+async function transcribeWithGroq(blob, retries = 3) {
   if (!blob || !blob.size) return "";
-  try {
-    const fd = new FormData();
-    const ext = getAudioExtension(blob);
-    fd.append("file", blob, `recording.${ext}`);
-    console.log(`[Groq STT] sending ${blob.size} bytes as ${ext}`);
-    const res = await fetch(`${BACKEND_URL}/transcribe`, {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.warn("[Groq STT] failed", res.status, err.slice(0,200));
-      throw new Error(err);
+  const ext = getAudioExtension(blob);
+  for (let attempt=0; attempt<retries; attempt++) {
+    try {
+      if (attempt>0) {
+        if (DOM.statusText) DOM.statusText.textContent = `サーバー起動中...(${attempt}/${retries-1})`;
+        await new Promise(r=>setTimeout(r, 4000));
+      }
+      const fd = new FormData();
+      fd.append("file", blob, `recording.${ext}`);
+      console.log(`[Groq STT] attempt ${attempt} ${blob.size} bytes`);
+      const res = await fetch(`${BACKEND_URL}/transcribe`, {method:"POST", body:fd, mode:"cors", credentials:"omit", cache:"no-store"});
+      console.log(`[Groq STT] status ${res.status}`);
+      if (!res.ok) {
+        const t = await res.text().catch(()=> "");
+        console.warn("[Groq STT] not ok", res.status, t.slice(0,200));
+        if (res.status>=500 && attempt<retries-1) continue;
+        throw new Error(t);
+      }
+      const data = await res.json();
+      return (data.text||"").trim();
+    } catch(e) {
+      console.warn(`[Groq STT] attempt ${attempt} failed`, e.message);
+      if (attempt===retries-1) return "";
+      if (e.message.includes("Failed to fetch")) continue;
     }
-    const data = await res.json();
-    const t = (data.text || "").trim();
-    console.log("[Groq STT] OK:", t);
-    return t;
-  } catch (e) {
-    console.warn("[Groq STT] error, will fallback to local", e.message);
-    return "";
   }
+  return "";
 }
 
+function getAudioExtension_v4(blob) {
+  const mime = (blob?.type||"").toLowerCase();
+  if (mime.includes("webm")) return "webm";
+  if (mime.includes("mp4")) return "mp4";
+  if (mime.includes("m4a")) return "m4a";
+  if (mime.includes("wav")) return "wav";
+  return "webm";
+}
 
 function getAudioExtension(blob) {
   const mime = (blob?.type || "").toLowerCase();
@@ -567,46 +570,13 @@ async function loadModel() {
 
     updateProgress(15, "15%");
 
+    // v4: ローカルASRは読み込まない - Groq Whisper Turboのみ使用
+    console.log("[ASR] skip Moonshine (buggy), using Groq");
     let lastAsrError = null;
-    for (const modelId of ASR_MODEL_CANDIDATES) {
-      try {
-        console.log(`[ASR] trying ${modelId}`);
-        if (DOM.statusText) DOM.statusText.textContent = `モデル読込中… ${modelId.split('/').pop()}`;
-        transcriber = await pipeline(
-          "automatic-speech-recognition",
-          modelId,
-          {
-            device: "wasm",
-            progress_callback: (p) => {
-              if (p.status === "progress" && p.progress) {
-                updateProgress(15 + (p.progress / 100) * 55, `${Math.round(15 + (p.progress / 100) * 55)}%`);
-              }
-            }
-          }
-        );
-        console.log(`[ASR] loaded ${modelId}`);
-        break;
-      } catch (e) {
-        lastAsrError = e;
-        console.error("[ASR] FAILED:", modelId, e);
-        transcriber = null;
-      }
-    }
-
-    if (!transcriber) {
-      if (recognition) {
-        console.warn("[ASR] fallback to Native SpeechRecognition");
-        useNativeASR = true;
-        isModelReady = true;
-        iosNativeMode = !isMediaRecorderSupported();
-      } else {
-        throw lastAsrError || new Error("All ASR models failed and no SpeechRecognition");
-      }
-    } else {
-      isModelReady = true;
-      useNativeASR = false;
-      iosNativeMode = false;
-    }
+    transcriber = null;
+    isModelReady = true;
+    useNativeASR = true;
+    iosNativeMode = !isMediaRecorderSupported();
 
     updateProgress(75, "75%");
     try {
@@ -617,9 +587,8 @@ async function loadModel() {
     }
 
     updateProgress(90, "90%");
-    // Local TTSは無効化済み - スキップ
-    console.log("[Load] Local TTS skipped, using backend");
-    isLocalTTSReady = false;
+    console.log("[Load] Local TTS skipped");
+    isLocalTTSReady=false;
 
     updateProgress(100, "100%");
     stopLoadCopyRotation();
@@ -704,36 +673,20 @@ async function blobToFloat32(blob) {
 }
 
 async function transcribe(float32, originalBlob) {
-  const getFallback = () => {
-    const t = preprocessText(iosLastTranscript);
-    return t.length >= 2 ? t : "";
-  };
-
-  // ★優先: Groq Whisper Turbo (最軽量・高精度・日本語対応)
+  // Groq優先
   if (originalBlob) {
-    const groqText = await transcribeWithGroq(originalBlob);
-    if (groqText && groqText.length >= 1 && !groqText.includes("聞き取れませんでした")) {
-      return preprocessText(groqText);
-    }
+    const groqText = await transcribeWithGroq(originalBlob, 3);
+    if (groqText && groqText.length>=1) return preprocessText(groqText);
   }
-
-  if (!float32?.length) return getFallback() || "（聞き取れませんでした）";
-
-  // フォールバック: ローカル Moonshine
-  if (transcriber) {
-    try {
-      const out = await transcriber(float32, {
-        sampling_rate: 16000,
-        return_timestamps: false
-      });
-      if (out?.text?.trim()) return preprocessText(out.text);
-    } catch (e) {
-      console.warn("[Moonshine transcribe error]", e);
-    }
-  }
-
-  return getFallback() || "（聞き取れませんでした）";
+  const fb = preprocessText(iosLastTranscript);
+  if (fb.length>=2) return fb;
+  return "（聞き取れませんでした）";
 }
+
+async function blobToFloat32(blob) {
+  return new Float32Array(0); // Groqのみなので不要
+}
+
 
 async function callLLM(messages) {
   try {
@@ -770,9 +723,15 @@ async function getAcoustic(blob) {
     const fd = new FormData();
     const ext = getAudioExtension(blob);
     fd.append("file", blob, `speech.${ext}`);
-    const r = await fetch(`${BACKEND_URL}/extract-features`, { method: "POST", body: fd });
-    if (!r.ok) return {};
-    return await r.json();
+    const urls = [`${BACKEND_URL}/extract-features`, `${BACKEND_URL}/api/extract-features`];
+    for (const url of urls) {
+      try {
+        const r = await fetch(url, { method: "POST", body: fd, mode:"cors", credentials:"omit" });
+        if (!r.ok) { console.warn("[OpenSMILE] not ok", r.status); continue; }
+        return await r.json();
+      } catch(e){ console.warn("[OpenSMILE] fetch failed", e.message); }
+    }
+    return {};
   } catch (e) {
     console.warn("[OpenSMILE]", e);
     return {};
@@ -972,14 +931,8 @@ async function processTurn() {
 
     if (DOM.statusText) DOM.statusText.textContent = "文字起こし中...";
     let float32 = new Float32Array(0);
-    if (blob) float32 = await blobToFloat32(blob);
-
-    // ★Groq Whisper Turboを最優先で使用 (ユーザ要望: STTはgroqAPI, 軽量)
+    // Groqのみ
     let userText = await transcribe(float32, blob);
-    if (userText.includes("聞き取れませんでした") && iosLastTranscript) {
-      const t = preprocessText(iosLastTranscript);
-      if (t.length >= 2) userText = t;
-    }
 
     allUserTexts.push(userText);
     conversationLog.push({ role: "user", content: userText });
@@ -1047,92 +1000,97 @@ async function processTurn() {
 async function speakWithBackend(text) {
   if (!text?.trim()) return;
   await unlockAudioContext();
-  const url = `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=ja-JP-NanamiNeural`;
-  const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), 18000);
-  try {
-    const res = await fetch(url, { method: "GET", signal: controller.signal, cache: "no-store" });
-    if (!res.ok) throw new Error(await res.text().catch(() => ""));
-    const blob = await res.blob();
-    if (!blob.size) throw new Error("empty TTS");
-    const audio = createPlaybackAudio();
-    try { audio.pause(); } catch {}
-    revokePlaybackURL();
-    playbackObjectURL = URL.createObjectURL(blob);
-    audio.src = playbackObjectURL;
-    audio.currentTime = 0;
-    await new Promise((resolve, reject) => {
-      let done = false;
-      const cleanup = () => {
-        audio.onended = null;
-        audio.onerror = null;
-      };
-      const ok = () => {
-        if (done) return;
-        done = true;
-        cleanup();
-        revokePlaybackURL();
-        resolve();
-      };
-      const ng = (e) => {
-        if (done) return;
-        done = true;
-        cleanup();
-        revokePlaybackURL();
-        reject(e);
-      };
-      audio.onended = ok;
-      audio.onerror = ng;
-      const p = audio.play();
-      if (p?.then) p.catch(ng);
-    });
-  } finally {
-    clearTimeout(tid);
+  const urls = [
+    `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=ja-JP-NanamiNeural`,
+    `${BACKEND_URL}/api/tts?text=${encodeURIComponent(text)}&voice=ja-JP-NanamiNeural`,
+    `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}`,
+  ];
+  for (let i=0;i<urls.length;i++){
+    try {
+      console.log(`[TTS] trying ${urls[i].slice(0,100)}`);
+      const res = await fetch(urls[i], {method:"GET", cache:"no-store", mode:"cors", credentials:"omit"});
+      console.log(`[TTS] status ${res.status}`);
+      if (!res.ok) {
+        const t = await res.text().catch(()=> "");
+        console.warn(`[TTS] ${res.status} ${t.slice(0,200)}`);
+        if (res.status===404) continue;
+        throw new Error(t);
+      }
+      const blob = await res.blob();
+      if (!blob.size) throw new Error("empty");
+      const audio = createPlaybackAudio();
+      try { audio.pause(); } catch {}
+      revokePlaybackURL();
+      playbackObjectURL = URL.createObjectURL(blob);
+      audio.src = playbackObjectURL;
+      audio.currentTime = 0;
+      await new Promise((resolve, reject)=>{
+        audio.onended = ()=>{ audio.onended=null; audio.onerror=null; revokePlaybackURL(); resolve(); };
+        audio.onerror = (e)=>{ audio.onended=null; audio.onerror=null; revokePlaybackURL(); reject(e); };
+        const p = audio.play();
+        if (p?.then) p.catch(reject);
+      });
+      return;
+    } catch(e){
+      console.warn(`[TTS] attempt ${i} failed`, e.message);
+      if (i===urls.length-1) throw e;
+      await new Promise(r=>setTimeout(r, 1000));
+    }
   }
 }
 
+async function speakWithLocalMMS(text) { throw new Error("disabled"); }
+
+
 async function speakWithLocalMMS(text) {
-  // ローカルTTS無効化 - バックエンドを使うので呼ばれない
-  throw new Error("local TTS disabled");
+  if (!isLocalTTSReady) await loadLocalTTS();
+  if (!localTTSPipeline) throw new Error("local TTS not ready");
+  const chunks = text.match(/.{1,120}(。|、|．|！|？|$)/g) || [text];
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  if (ctx.state === "suspended") await ctx.resume();
+  try {
+    for (const ch of chunks) {
+      if (!ch.trim()) continue;
+      const out = await localTTSPipeline(ch);
+      const buf = ctx.createBuffer(1, out.audio.length, out.sampling_rate);
+      buf.getChannelData(0).set(out.audio);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      await new Promise(r => { src.onended = r; src.start(); });
+    }
+  } finally {
+    try { await ctx.close(); } catch {}
+  }
 }
 
 async function speakAI(text, onEnd) {
   if (!text?.trim()) { onEnd?.(); return; }
-  if (isSpeaking || isRecording) {
-    if (isSpeaking) { onEnd?.(); return; }
-    if (isRecording) { onEnd?.(); return; }
-  }
+  if (isSpeaking || isRecording) return;
   isSpeaking = true;
-  let hasEnded = false;
-  const safeEnd = () => {
-    if (!hasEnded) {
-      hasEnded = true;
-      isSpeaking = false;
-      try { onEnd?.(); } catch {}
-    }
-  };
-  const prev = DOM.statusText?.textContent || "";
+  const safeEnd = ()=>{ isSpeaking=false; try{ onEnd?.(); }catch{} };
+  const prev = DOM.statusText?.textContent||"";
   if (DOM.statusText) DOM.statusText.textContent = "AI が話しています...";
-  if (DOM.micBtn) {
-    DOM.micBtn.disabled = true;
-    DOM.micBtn.classList.add("opacity-50");
-  }
-  let lastErr = null;
-  // ★バックエンドTTSのみ (edge-tts Nanami) - 軽量で高品質、401エラー回避
+  if (DOM.micBtn) { DOM.micBtn.disabled=true; DOM.micBtn.classList.add("opacity-50"); }
   try {
     await speakWithBackend(text);
-  } catch (e) {
-    lastErr = e;
-    console.warn(`[TTS backend]`, e.message);
+  } catch(e) {
+    console.warn("[TTS] backend failed, fallback to Web Speech", e.message);
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ja-JP";
+      u.rate = 1.0;
+      await new Promise(res=>{ u.onend=res; u.onerror=res; speechSynthesis.speak(u); });
+    } catch(e2){ console.warn("[TTS] webspeech failed", e2); }
   }
   if (DOM.statusText) DOM.statusText.textContent = prev;
   if (isModelReady && DOM.viewResultBtn?.classList.contains("hidden") && DOM.micBtn) {
-    DOM.micBtn.disabled = false;
-    DOM.micBtn.classList.remove("opacity-50");
+    DOM.micBtn.disabled=false; DOM.micBtn.classList.remove("opacity-50");
   }
-  if (lastErr && DOM.statusText) DOM.statusText.textContent = "音声を再生できませんでした。タップして続行";
   safeEnd();
 }
+
 
 function initScan() {
   bindDOM();

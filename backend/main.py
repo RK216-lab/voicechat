@@ -22,7 +22,16 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    return JSONResponse({}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+    })
 
 smile_lock = threading.Lock()
 smile = opensmile.Smile(
@@ -167,6 +176,7 @@ def ensemble_scores(voice_scores, embed_scores):
 # ============ Endpoints ============
 
 @app.post("/transcribe")
+@app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     """Groq Whisper Turbo - 最軽量モデル"""
     groq_key = os.getenv("GROQ_API_KEY")
@@ -255,5 +265,7 @@ async def chat_proxy(request: Request):
         return JSONResponse({"text":"そうなんだね、もう少しだけ詳しく教えてくれる？", "error": str(e)})
 
 @app.get("/")
+@app.get("/api/")
+@app.get("/health")
 def health():
     return {"status":"ok","models":list(models.keys()),"scaler":scaler_means is not None,"groq_key_set": bool(os.getenv("GROQ_API_KEY")),"chat_model":"openai/gpt-oss-20b","stt_model":"whisper-large-v3-turbo"}
