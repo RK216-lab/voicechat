@@ -2,21 +2,8 @@
    Restee 自分スキャン scan.js 完全版 vFixed-Patched
    ========================================================= */
 
-// 音声再生の制限解除用関数
-function installAudioUnlock() {
-  const unlock = () => {
-    const context = new (window.AudioContext || window.webkitAudioContext)();
-    if (context.state === 'suspended') {
-      context.resume();
-    }
-    document.removeEventListener('click', unlock);
-    document.removeEventListener('touchstart', unlock);
-  };
-  document.addEventListener('click', unlock);
-  document.addEventListener('touchstart', unlock);
-}
 const BACKEND_URL = "https://voicechat-9w4o.onrender.com";
-
+const CHAT_URL = "/api/chat"; // Vercel側のGroq用。Renderじゃない！
 
 const TRANSFORMERS_CANDIDATES = [
   "https://esm.sh/@huggingface/transformers@3.7.2",
@@ -105,15 +92,11 @@ async function unlockAudioContext() {
   } catch (e) { console.warn("[unlock]", e); }
 }
 
-// プロンプト生成関数の修正
-function buildTurnSystem(phase, openingText) {
-  if (phase === "followup1") {
-    return `${SYSTEM_BASE}\n現在は会話の2ターン目（ユーザー2回目の発話）。最初は「${openingText}」①話を受け止め共感②話の具体的な背景や気持ちを1つだけ深掘り。同じ質問の繰り返しは禁止。`;
-  }
-  if (phase === "followup2") {
-    return `${SYSTEM_BASE}\n現在は会話の3ターン目（ユーザー3回目の発話）。これまでの内容を受け止め、さらに別の角度や具体的な場面について1つだけ深掘り。`;
-  }
-  return `${SYSTEM_BASE}\nこれが会話の最後の応答（4ターン目・締め）。これまでを1文で優しく受け止め「話してくれてありがとう」で締める。質問禁止。40文字以内。`;
+function installAudioUnlock() {
+  const h = () => { if (!audioUnlocked) unlockAudioContext().catch(() => {}); };
+  document.addEventListener("touchstart", h, { once: true, passive: true });
+  document.addEventListener("pointerdown", h, { once: true, passive: true });
+  document.addEventListener("click", h, { once: true, passive: true });
 }
 
 const OPENINGS = ["こんにちは。今日はどんな一日でしたか？楽しかったことや、疲れたことなど教えてください。","お疲れさまです。今の調子はいかがですか？元気、眠い、少しだるいなど、近いものを教えてください。","今日は体の調子、いかがでしたか？重い、眠い、元気など、感じたことを教えてください。","今日は頭の調子、どうでしたか？集中できた、ぼーっとしたなど、思ったことを教えてください。","今日は気分、どうでしたか？楽しい、落ち着く、ちょっとモヤモヤするなど、聞かせてください。","今日、一番疲れたのはどんなときでしたか？勉強、仕事、人とのやりとりなど、何でも大丈夫です。","今日は何か頑張ったこと、ありましたか？勉強や部活、家のことなど、何でも大丈夫です。","今日、いつもよりしんどいと感じたことはありましたか？眠気やだるさなど、気になることを教えてください。","今いちばん気になるのはどこですか？体、頭、気分のことなど、何でも大丈夫です。","今日をひとことで言うと、どんな日でしたか？「疲れた」「元気だった」くらいでも大丈夫です。"];
@@ -330,11 +313,15 @@ async function transcribe(float32) {
 // 【修正②】LLM API呼び出しの完全保護（フォーマット不整合対策）
 async function callLLM(messages) {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/chat`, {
+    const controller = new AbortController();
+    const t = setTimeout(()=>controller.abort(), 15000);
+    const res = await fetch(CHAT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages })
+      body: JSON.stringify({ messages }),
+      signal: controller.signal
     });
+    clearTimeout(t);
 
     if (!res.ok) throw new Error(`LLM status: ${res.status}`);
     const data = await res.json();
@@ -422,20 +409,7 @@ function loopMonitor() {
   if (!isRecording || !analyser) return; const data = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(data); let sum = 0; for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; } const rms = Math.sqrt(sum / data.length); updateWaveFromRms(rms); const th = AVOID_CONCURRENCY ? SILENCE_THRESHOLD * 1.5 : SILENCE_THRESHOLD; const ms = AVOID_CONCURRENCY ? SILENCE_MS + 1000 : SILENCE_MS; if (rms < th) { if (!silenceStart) silenceStart = Date.now(); else if (Date.now() - silenceStart > ms) { stopRecording(); return; } } else silenceStart = null; waveRaf = requestAnimationFrame(loopMonitor);
 }
 
-function afterSpeakThenRecord() {
-  setTimeout(() => {
-    // 3ターン未満の場合はマイクボタンを再び押し込める状態に戻す
-    if (isModelReady && currentTurn < 3 && DOM.viewResultBtn?.classList.contains("hidden")) {
-      if (DOM.statusText) DOM.statusText.textContent = "タップして話す";
-      if (DOM.micHint) DOM.micHint.textContent = "マイクを押してください";
-      if (DOM.micBtn) {
-        DOM.micBtn.disabled = false;
-        DOM.micBtn.classList.remove("opacity-50");
-      }
-      setMicUI(false);
-    }
-  }, POST_TTS_GAP_MS);
-}
+function afterSpeakThenRecord() { setTimeout(() => { if (isModelReady && currentTurn < 2 && DOM.viewResultBtn?.classList.contains("hidden")) { if (DOM.statusText) DOM.statusText.textContent = "タップして話す"; if (DOM.micHint) DOM.micHint.textContent = "マイクを押してください"; if (DOM.micBtn) { DOM.micBtn.disabled = false; DOM.micBtn.classList.remove("opacity-50"); } setMicUI(false); } }, POST_TTS_GAP_MS); }
 
 async function processTurn() {
   try {
@@ -462,99 +436,35 @@ async function processTurn() {
       userText = preprocessText(iosLastTranscript) || "（聞き取れませんでした）";
     }
 
-    allUserTexts.push(userText);
-    conversationLog.push({ role: "user", content: userText });
-    currentTurn++;
+    allUserTexts.push(userText); conversationLog.push({ role: "user", content: userText }); currentTurn++;
 
-    // ----------------------------------------------------
-    // 【1ターン目】ユーザー1回目の発話に対するAI応答（深掘り1）
-    // ----------------------------------------------------
     if (currentTurn === 1) {
-      if (DOM.statusText) DOM.statusText.textContent = "AIが考えています...";
-      updateProgress(25, "25%");
+      if (DOM.statusText) DOM.statusText.textContent = "AIが考えています..."; updateProgress(35, "35%");
       if (blob) getAcoustic(blob).then(f => { lastAcoustic = f; }).catch(() => {});
-      
-      const messages = [{ role: "system", content: buildTurnSystem("followup1", currentOpening) }, ...conversationLog];
+      const messages = [{ role: "system", content: buildTurnSystem("followup", currentOpening) }, ...conversationLog];
       const rawReply = await callLLM(messages);
-      const reply = rawReply?.trim() || "そうなんですね。もう少し詳しく教えてもらえますか？";
-      
-      conversationLog.push({ role: "assistant", content: reply });
-      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/\n/g, "<br>");
-      speakAI(reply, afterSpeakThenRecord);
-      return;
+      const reply = rawReply.trim() || "そうなんですね。もう少し詳しく教えてもらえますか？";
+      conversationLog.push({ role: "assistant", content: reply }); if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/\n/g, "<br>"); speakAI(reply, afterSpeakThenRecord); return;
     }
-
-    // ----------------------------------------------------
-    // 【2ターン目】ユーザー2回目の発話に対するAI応答（深掘り2）
-    // ----------------------------------------------------
     if (currentTurn === 2) {
-      if (DOM.statusText) DOM.statusText.textContent = "AIが考えています...";
-      updateProgress(50, "50%");
-      if (blob && !Object.keys(lastAcoustic).length) getAcoustic(blob).then(f => { lastAcoustic = f; }).catch(() => {});
-
-      const messages = [{ role: "system", content: buildTurnSystem("followup2", currentOpening) }, ...conversationLog];
-      const rawReply = await callLLM(messages);
-      const reply = rawReply?.trim() || "教えてくれてありがとうございます。特にどんな時にそれを強く感じますか？";
-
-      conversationLog.push({ role: "assistant", content: reply });
-      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/\n/g, "<br>");
-      speakAI(reply, afterSpeakThenRecord);
-      return;
-    }
-
-    // ----------------------------------------------------
-    // 【3ターン目】ユーザー3回目の発話に対するAI応答（締め＆診断結果へ）
-    // ----------------------------------------------------
-    if (currentTurn === 3) {
-      if (DOM.statusText) DOM.statusText.textContent = "AIが考えています...";
-      updateProgress(75, "75%");
-
+      if (DOM.statusText) DOM.statusText.textContent = "AIが考えています..."; updateProgress(65, "65%");
       const closeMessages = [{ role: "system", content: buildTurnSystem("close", currentOpening) }, ...conversationLog];
       const rawSummary = await callLLM(closeMessages);
-      const summary = rawSummary?.trim() || "たくさん話してくれてありがとう。";
-      
-      conversationLog.push({ role: "assistant", content: summary });
-      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = summary.replace(/\n/g, "<br>");
-
+      const summary = rawSummary.trim() || "話してくれてありがとう。";
+      conversationLog.push({ role: "assistant", content: summary }); if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = summary.replace(/\n/g, "<br>");
       if (!Object.keys(lastAcoustic).length && lastAudioBlob) lastAcoustic = await getAcoustic(lastAudioBlob);
-      if (DOM.statusText) DOM.statusText.textContent = "内容を分析中...";
-      updateProgress(90, "90%");
-
+      if (DOM.statusText) DOM.statusText.textContent = "内容を分析中..."; updateProgress(85, "85%");
       const scores = await scoreWithFallback(allUserTexts.join("。"), lastAcoustic, lastAudioBlob);
       const recovery = pickRecovery(scores);
-
-      const diagMsgs = [
-        { role: "system", content: `あなたは優しいアドバイザーです。出力は必ず次のJSONのみ。{"title":"〇〇な疲れ","detail":"ユーザーに語りかける2〜3文。"}` },
-        { role: "user", content: `身体:${scores.physical} 脳:${scores.brain} 精神:${scores.mental} 総合:${scores.total}\n${conversationLog.map(m => (m.role === "user" ? "ユーザー" : "AI") + "：" + m.content).join("\n")}` }
-      ];
-
-      const rawDiag = await callLLM(diagMsgs);
-      const { title, detail } = parseDiagnosisJSON(rawDiag, scores);
-
-      const te = document.getElementById("fatigueTitle");
-      const de = document.getElementById("fatigueDetailText");
-      if (te) te.textContent = title;
-      if (de) de.textContent = detail;
-
-      applyScoreUI(scores);
-      renderRecovery(recovery.suggestions);
-
+      const diagMsgs = [{ role: "system", content: `あなたは優しいアドバイザーです。出力は必ず次のJSONのみ。{"title":"〇〇な疲れ","detail":"ユーザーに語りかける2〜3文。"}` }, { role: "user", content: `身体:${scores.physical} 脳:${scores.brain} 精神:${scores.mental} 総合:${scores.total}\n${conversationLog.map(m => (m.role === "user" ? "ユーザー" : "AI") + "：" + m.content).join("\n")}` }];
+      const rawDiag = await callLLM(diagMsgs); const { title, detail } = parseDiagnosisJSON(rawDiag, scores);
+      const te = document.getElementById("fatigueTitle"), de = document.getElementById("fatigueDetailText"); if (te) te.textContent = title; if (de) de.textContent = detail;
+      applyScoreUI(scores); renderRecovery(recovery.suggestions);
       const saveData = { ...scores, fatigueTitle: title, fatigueDetail: detail, conversation: conversationLog, final: scores };
-      if (window.ResteeApp?.saveScanResult) window.ResteeApp.saveScanResult(saveData);
-      else localStorage.setItem("restee_last_scan", JSON.stringify({ ...saveData, timestamp: new Date().toISOString(), dateStr: new Date().toLocaleString("ja-JP") }));
-
-      updateProgress(100, "100%");
-      if (DOM.statusText) DOM.statusText.textContent = "スキャン完了";
-      DOM.micBtn?.classList.add("hidden");
-      DOM.viewResultBtn?.classList.remove("hidden");
-      speakAI(`${summary}。結果をご覧ください。`);
+      if (window.ResteeApp?.saveScanResult) window.ResteeApp.saveScanResult(saveData); else localStorage.setItem("restee_last_scan", JSON.stringify({ ...saveData, timestamp: new Date().toISOString(), dateStr: new Date().toLocaleString("ja-JP") }));
+      updateProgress(100, "100%"); if (DOM.statusText) DOM.statusText.textContent = "スキャン完了"; DOM.micBtn?.classList.add("hidden"); DOM.viewResultBtn?.classList.remove("hidden"); speakAI(`${summary}。結果をご覧ください。`);
     }
-  } catch (e) {
-    console.error(e);
-    if (DOM.statusText) DOM.statusText.textContent = "エラーが発生しました。もう一度どうぞ";
-    setMicUI(false);
-    isRecording = false;
-  }
+  } catch (e) { console.error(e); if (DOM.statusText) DOM.statusText.textContent = "エラーが発生しました。もう一度どうぞ"; setMicUI(false); isRecording = false; }
 }
 
 async function speakWithBackend(text) {
