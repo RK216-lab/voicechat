@@ -12,10 +12,13 @@ import edge_tts
 import lightgbm as lgb
 from typing import Optional, Dict
 import httpx
+from io import BytesIO
+
 
 app = FastAPI(title="Fatigue Ensemble: Voice + Embedding")
 
-# 修正#3 CORS ワイルドカード+credentialsは禁止
+
+# 修正#3 CORS ワイルドカード+credentials は禁止
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,12 +27,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============ OpenSmile (thread-safeに) ============
+
+# ============ OpenSmile (thread-safe に) ============
 smile_lock = threading.Lock()
 smile = opensmile.Smile(
     feature_set=opensmile.FeatureSet.eGeMAPSv02,
     feature_level=opensmile.FeatureLevel.Functionals,
 )
+
 
 # ============ Scaler 91D ============
 SCALER_PATHS = ["./scaler_91.json", "../scaler_91.json", "./models/scaler_91.json", "../models/scaler_91.json", "/mnt/data/scaler_91.json"]
@@ -37,6 +42,7 @@ scaler_means = None
 scaler_stds = None
 feature_order_91 = None
 smile_order = None
+
 
 for p in SCALER_PATHS:
     if os.path.exists(p):
@@ -52,6 +58,7 @@ for p in SCALER_PATHS:
         except Exception as e:
             print(f"[WARN] Scaler load failed {p}: {e}")
 
+
 if scaler_means is None:
     scaler_means = np.zeros(91, dtype=np.float32)
     scaler_stds = np.ones(91, dtype=np.float32)
@@ -59,8 +66,10 @@ if scaler_means is None:
         "smile_F0semitoneFrom27.5Hz_sma3nz_amean","smile_F0semitoneFrom27.5Hz_sma3nz_stddevNorm","smile_F0semitoneFrom27.5Hz_sma3nz_percentile20.0","smile_F0semitoneFrom27.5Hz_sma3nz_percentile50.0","smile_F0semitoneFrom27.5Hz_sma3nz_percentile80.0","smile_F0semitoneFrom27.5Hz_sma3nz_pctlrange0-2","smile_F0semitoneFrom27.5Hz_sma3nz_meanRisingSlope","smile_F0semitoneFrom27.5Hz_sma3nz_stddevRisingSlope","smile_F0semitoneFrom27.5Hz_sma3nz_meanFallingSlope","smile_F0semitoneFrom27.5Hz_sma3nz_stddevFallingSlope","smile_loudness_sma3_amean","smile_loudness_sma3_stddevNorm","smile_loudness_sma3_percentile20.0","smile_loudness_sma3_percentile50.0","smile_loudness_sma3_percentile80.0","smile_loudness_sma3_pctlrange0-2","smile_loudness_sma3_meanRisingSlope","smile_loudness_sma3_stddevRisingSlope","smile_loudness_sma3_meanFallingSlope","smile_loudness_sma3_stddevFallingSlope","smile_spectralFlux_sma3_amean","smile_spectralFlux_sma3_stddevNorm","smile_mfcc1_sma3_amean","smile_mfcc1_sma3_stddevNorm","smile_mfcc2_sma3_amean","smile_mfcc2_sma3_stddevNorm","smile_mfcc3_sma3_amean","smile_mfcc3_sma3_stddevNorm","smile_mfcc4_sma3_amean","smile_mfcc4_sma3_stddevNorm","smile_jitterLocal_sma3nz_amean","smile_jitterLocal_sma3nz_stddevNorm","smile_shimmerLocaldB_sma3nz_amean","smile_shimmerLocaldB_sma3nz_stddevNorm","smile_HNRdBACF_sma3nz_amean","smile_HNRdBACF_sma3nz_stddevNorm","smile_logRelF0-H1-H2_sma3nz_amean","smile_logRelF0-H1-H2_sma3nz_stddevNorm","smile_logRelF0-H1-A3_sma3nz_amean","smile_logRelF0-H1-A3_sma3nz_stddevNorm","smile_F1frequency_sma3nz_amean","smile_F1frequency_sma3nz_stddevNorm","smile_F1bandwidth_sma3nz_amean","smile_F1bandwidth_sma3nz_stddevNorm","smile_F1amplitudeLogRelF0_sma3nz_amean","smile_F1amplitudeLogRelF0_sma3nz_stddevNorm","smile_F2frequency_sma3nz_amean","smile_F2frequency_sma3nz_stddevNorm","smile_F2bandwidth_sma3nz_amean","smile_F2bandwidth_sma3nz_stddevNorm","smile_F2amplitudeLogRelF0_sma3nz_amean","smile_F2amplitudeLogRelF0_sma3nz_stddevNorm","smile_F3frequency_sma3nz_amean","smile_F3frequency_sma3nz_stddevNorm","smile_F3bandwidth_sma3nz_amean","smile_F3bandwidth_sma3nz_stddevNorm","smile_F3amplitudeLogRelF0_sma3nz_amean","smile_F3amplitudeLogRelF0_sma3nz_stddevNorm","smile_alphaRatioV_sma3nz_amean","smile_alphaRatioV_sma3nz_stddevNorm","smile_hammarbergIndexV_sma3nz_amean","smile_hammarbergIndexV_sma3nz_stddevNorm","smile_slopeV0-500_sma3nz_amean","smile_slopeV0-500_sma3nz_stddevNorm","smile_slopeV500-1500_sma3nz_amean","smile_slopeV500-1500_sma3nz_stddevNorm","smile_spectralFluxV_sma3nz_amean","smile_spectralFluxV_sma3nz_stddevNorm","smile_mfcc1V_sma3nz_amean","smile_mfcc1V_sma3nz_stddevNorm","smile_mfcc2V_sma3nz_amean","smile_mfcc2V_sma3nz_stddevNorm","smile_mfcc3V_sma3nz_amean","smile_mfcc3V_sma3nz_stddevNorm","smile_mfcc4V_sma3nz_amean","smile_mfcc4V_sma3nz_stddevNorm","smile_alphaRatioUV_sma3nz_amean","smile_hammarbergIndexUV_sma3nz_amean","smile_slopeUV0-500_sma3nz_amean","smile_slopeUV500-1500_sma3nz_amean","smile_spectralFluxUV_sma3nz_amean","smile_loudnessPeaksPerSec","smile_VoicedSegmentsPerSec","smile_MeanVoicedSegmentLengthSec","smile_StddevVoicedSegmentLengthSec","smile_MeanUnvoicedSegmentLength","smile_StddevUnvoicedSegmentLength","smile_equivalentSoundLevel_dBp"
     ]
 
-# 0除算防止
+
+# 0 除算防止
 scaler_stds = np.where(scaler_stds == 0, 1.0, scaler_stds)
+
 
 # ============ Models ============
 MODEL_PATHS = {
@@ -79,12 +88,15 @@ for k, paths in MODEL_PATHS.items():
             except Exception as e:
                 print(f"Failed {p}: {e}")
 
+
 # ============ Helpers ============
 FATIGUE_KEYWORDS = ["疲れ","疲れた","だるい","眠い","しんどい","集中","やる気","重い","しょぼしょぼ","頭痛","つかれ","倦怠","無気力"]
+
 
 def compute_fatigue_word_count(text: str) -> float:
     if not text: return 0.0
     return float(sum(text.count(kw) for kw in FATIGUE_KEYWORDS))
+
 
 def compute_speech_rate(text: str, duration: Optional[float]) -> float:
     if not text or not duration or duration <= 0:
@@ -92,17 +104,19 @@ def compute_speech_rate(text: str, duration: Optional[float]) -> float:
     # 修正#7 日本語は文字数ベース
     has_ja = bool(re.search(r'[\u3040-\u30FF\u4E00-\u9FAF]', text))
     if has_ja:
-        return len(text) / duration # 文字/秒
+        return len(text) / duration  # 文字/秒
     words = re.findall(r'\w+', text)
     wc = len(words) if words else len(text)
     return wc / duration
+
 
 def compute_sim_brain(text: str) -> float:
     if not text: return 0.813
     return float(np.clip(0.813 + compute_fatigue_word_count(text)*0.01, 0.7, 0.9))
 
+
 def get_ext_from_upload(file: UploadFile) -> str:
-    # content-typeとファイル名から拡張子判定（修正#2 iOS対応）
+    # content-type とファイル名から拡張子判定（修正#2 iOS 対応）
     name = (file.filename or "").lower()
     ctype = (file.content_type or "").lower()
     if "mp4" in ctype or name.endswith(".mp4"): return ".mp4"
@@ -114,8 +128,9 @@ def get_ext_from_upload(file: UploadFile) -> str:
     if "mpeg" in ctype or name.endswith(".mp3"): return ".mp3"
     return ".webm"
 
+
 def convert_to_wav_16k(src_path: str) -> str:
-    """任意形式をwav 16k monoに変換、失敗時は元パスを返す"""
+    """任意形式を wav 16k mono に変換、失敗時は元パスを返す"""
     try:
         from pydub import AudioSegment
         audio = AudioSegment.from_file(src_path)
@@ -128,6 +143,7 @@ def convert_to_wav_16k(src_path: str) -> str:
         print(f"[WARN] convert_to_wav failed {e}, using original {src_path}")
         return src_path
 
+
 def get_audio_duration_sec(wav_path: str) -> Optional[float]:
     try:
         from pydub import AudioSegment
@@ -135,6 +151,7 @@ def get_audio_duration_sec(wav_path: str) -> Optional[float]:
         return len(audio)/1000.0
     except:
         return None
+
 
 def extract_smile_features(wav_path: str) -> np.ndarray:
     # 修正#6 thread-safe
@@ -161,18 +178,20 @@ def extract_smile_features(wav_path: str) -> np.ndarray:
         vec.append(fv)
     return np.array(vec, dtype=np.float32)
 
+
 def extract_smile_features_dict(wav_path: str) -> Dict[str, float]:
     with smile_lock:
         df = smile.process_file(wav_path)
     if df is None or df.empty:
         raise ValueError("OpenSmile empty")
     row = df.iloc[0].to_dict()
-    # float化して返す
+    # float 化して返す
     out = {}
     for k,v in row.items():
         try: out[k]=float(v)
         except: out[k]=0.0
     return out
+
 
 def build_91_vector(smile_vec, text="", duration=None):
     sim_brain = compute_sim_brain(text)
@@ -181,7 +200,9 @@ def build_91_vector(smile_vec, text="", duration=None):
     extra = np.array([sim_brain, speech_rate, fatigue_wc], dtype=np.float32)
     return np.concatenate([smile_vec, extra])
 
+
 def standardize_91(v): return (v - scaler_means) / scaler_stds
+
 
 def predict_voice_91(vec_std):
     results={}
@@ -198,6 +219,7 @@ def predict_voice_91(vec_std):
         "mental": to100(results.get("mental",3.0)),
     }
 
+
 ENSEMBLE_WEIGHTS = {
     "physical": {"embed": 0.60, "voice": 0.40},
     "brain": {"embed": 0.30, "voice": 0.70},
@@ -205,6 +227,7 @@ ENSEMBLE_WEIGHTS = {
 }
 def embedding_to_percent(sim_fatigue: float, sim_healthy: float) -> float:
     return float(np.clip(48 + (sim_fatigue - sim_healthy)*160, 12, 93))
+
 
 def ensemble_scores(voice_scores, embed_scores):
     final={}
@@ -215,7 +238,54 @@ def ensemble_scores(voice_scores, embed_scores):
     final["total"] = float(np.clip(100 - avg*0.88, 18, 95))
     return final
 
+
 # ============ Endpoints ============
+
+
+@app.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """Groq Whisper で文字起こし"""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise HTTPException(500, "GROQ_API_KEY not set")
+    
+    ext = get_ext_from_upload(file)
+    content = await file.read()
+    
+    # Groq API に送信
+    fd = httpx.FormData()
+    fd.append("file", BytesIO(content), f"recording.{ext}")
+    fd.append("model", "whisper-large-v3-turbo")
+    fd.append("language", "ja")
+    fd.append("response_format", "json")
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {groq_key}"},
+                data=fd
+            )
+            
+            if resp.status_code != 200:
+                print(f"[Groq transcribe error] {resp.status_code}: {resp.text}")
+                raise HTTPException(500, f"Groq error: {resp.text}")
+            
+            data = resp.json()
+            text = data.get("text", "").strip()
+            
+            return {
+                "text": text,
+                "language": "ja",
+                "source": "groq-whisper"
+            }
+    except httpx.HTTPError as e:
+        print(f"[Groq HTTP error] {e}")
+        raise HTTPException(500, f"Groq HTTP error: {str(e)}")
+    except Exception as e:
+        print(f"[Transcribe error] {e}")
+        raise HTTPException(500, f"Transcribe failed: {str(e)}")
+
 
 @app.post("/extract-features")
 async def extract_features(file: UploadFile = File(...)):
@@ -241,6 +311,7 @@ async def extract_features(file: UploadFile = File(...)):
         try: os.remove(tmp_raw.name)
         except: pass
 
+
 @app.post("/predict-fatigue")
 async def predict_fatigue(
     file: UploadFile = File(...),
@@ -265,6 +336,7 @@ async def predict_fatigue(
         vec91_std = standardize_91(vec91)
         voice_scores = predict_voice_91(vec91_std)
 
+
         if sim_body is not None and sim_healthy is not None:
             embed_scores = {
                 "physical": embedding_to_percent(sim_body, sim_healthy),
@@ -282,7 +354,9 @@ async def predict_fatigue(
             }
             embed_source="heuristic"
 
+
         final = ensemble_scores(voice_scores, embed_scores)
+
 
         return {
             "voice": voice_scores,
@@ -316,6 +390,7 @@ async def predict_fatigue(
         try: os.remove(tmp_raw.name)
         except: pass
 
+
 @app.get("/tts")
 async def tts(text: str = Query(..., min_length=1, max_length=400), voice: str = Query("ja-JP-NanamiNeural")):
     if voice.startswith("jf_") or voice=="female": voice="ja-JP-NanamiNeural"
@@ -336,10 +411,11 @@ async def tts(text: str = Query(..., min_length=1, max_length=400), voice: str =
             try: os.remove(tmp_path)
             except: pass
 
+
 @app.post("/chat")
 @app.post("/api/chat")
 async def chat_proxy(request: Request):
-    # 修正#10 bodyを1回だけ読む
+    # 修正#10 body を 1 回だけ読む
     try: body = await request.json()
     except: body = {}
     messages = body.get("messages", [])
@@ -366,6 +442,7 @@ async def chat_proxy(request: Request):
         last_user = next((m.get("content","") for m in reversed(messages) if m.get("role")=="user"), "")
         fb = "そうなんだね、もう少しだけ詳しく教えてくれる？" if len([m for m in messages if m.get("role")=="user"]) <=1 else "話してくれてありがとう。少し休んでみてもいいかもしれないね。"
         return JSONResponse({"text": fb, "error": str(e)})
+
 
 @app.get("/")
 def health():
