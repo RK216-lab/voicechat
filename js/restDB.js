@@ -1,6 +1,6 @@
 // js/restDB.js v3.1 - 脳疲労マッチ修正版 + 日本語対応 + デバッグ
 const RestDB = (() => {
-  const GAS_URL = "https://script.google.com/macros/s/YOUR_GAS_ID/exec";
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbwwwW0xmxd60FLG1a7Nijc0DsF9CfpBEe3YtQD19-C10xC7_RrURocUeuA1yJEsDX-50g/exec";
   const LOCAL_JSON_URL = "./data/restDatabase.json";
   let useLocal = false;
 
