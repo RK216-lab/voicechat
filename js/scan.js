@@ -19,9 +19,8 @@ const TRANSFORMERS_CANDIDATES = [
 ];
 
 const ASR_MODEL_CANDIDATES = [
-  "wmoto-ai/moonshine-tiny-ja-ONNX",
-  "onnx-community/moonshine-tiny-ja-ONNX",
-  "Xenova/whisper-tiny"
+  "onnx-community/Moonshine-tiny-ONNX",
+  "wmoto-ai/moonshine-tiny-ja-ONNX"
 ];
 
 const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
@@ -291,10 +290,27 @@ async function blobToFloat32(blob) {
   } catch (e) { console.warn("[blobToFloat32]", e); }
   return new Float32Array(0);
 }
+// 修正後
 async function transcribe(float32) {
   const getFallback = () => { const t = preprocessText(iosLastTranscript); return t.length >= 2? t : ""; };
   if (!float32?.length) return getFallback() || "（聞き取れませんでした）";
-  if (transcriber) { try { let out; try { out = await transcriber({ array: float32, sampling_rate: 16000 }); } catch { out = await transcriber(float32); } if (out?.text?.trim()) return preprocessText(out.text); } catch (e) { console.warn("[Moonshine transcribe]", e); } }
+  
+  if (transcriber) {
+    try {
+      let out;
+      // 内部パラメータの不足を防ぐためオプションを指定
+      out = await transcriber(float32, {
+        return_timestamps: false,
+        generate_kwargs: {
+          max_new_tokens: 128
+        }
+      });
+      
+      if (out?.text?.trim()) return preprocessText(out.text);
+    } catch (e) {
+      console.warn("[Moonshine transcribe]", e);
+    }
+  }
   return getFallback() || "（聞き取れませんでした）";
 }
 // 修正後
