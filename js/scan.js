@@ -381,10 +381,21 @@ async function transcribe(float32){
   const outputs=await model.generate({...inputs,max_new_tokens:96});
   return tokenizer.decode(outputs[0],{skip_special_tokens:true}).trim()||"（聞き取れませんでした）";
 }
-async function callLLM(messages){
-  const res=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages})});
-  const data=await res.json();
-  return data.text||data.choices?.[0]?.message?.content||"";
+async function callLLM(messages) {
+  // バックエンドの正しいURLに変更（例: Renderのドメイン）
+  const res = await fetch("https://voicechat-gz4j.onrender.com/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages })
+  });
+
+  // サーバーエラー時にJSON化で落ちないようチェックを追加
+  if (!res.ok) {
+    throw new Error(`LLM APIエラー: status ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.text || data.choices?.[0]?.message?.content || "";
 }
 async function getAcoustic(blob){
   try{
