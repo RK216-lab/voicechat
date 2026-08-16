@@ -696,66 +696,7 @@ async function loadModel() {
 }
 
 async function blobToFloat32(blob) {
-  if (!blob?.size) return new Float32Array(0);
-
-  const arrayBuffer = await blob.arrayBuffer();
-  if (!arrayBuffer.byteLength) return new Float32Array(0);
-
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return new Float32Array(0);
-
-  let ctx = null;
-
-  try {
-    ctx = new AC();
-    if (ctx.state === "suspended") await ctx.resume();
-
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-    const input = audioBuffer.getChannelData(0);
-    const targetRate = 16000;
-
-    if (audioBuffer.sampleRate === targetRate) {
-      return new Float32Array(input);
-    }
-
-    const length = Math.ceil(audioBuffer.duration * targetRate);
-    const offline = new OfflineAudioContext(1, Math.max(1, length), targetRate);
-
-    const source = offline.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(offline.destination);
-    source.start(0);
-
-    const rendered = await offline.startRendering();
-    return new Float32Array(rendered.getChannelData(0));
-  } catch (error) {
-    console.error("[blobToFloat32] decode failed:", {
-      name: error?.name,
-      message: error?.message,
-      type: blob.type,
-      size: blob.size
-    });
-    return new Float32Array(0);
-  } finally {
-    try {
-      if (ctx && ctx.state !== "closed") await ctx.close();
-    } catch {}
-  }
-}
-
-async function transcribe(float32, originalBlob) {
-  // Groq優先
-  if (originalBlob) {
-    const groqText = await transcribeWithGroq(originalBlob, 3);
-    if (groqText && groqText.length>=1) return preprocessText(groqText);
-  }
-  const fb = preprocessText(iosLastTranscript);
-  if (fb.length>=2) return fb;
-  return "（聞き取れませんでした）";
-}
-
-async function blobToFloat32(blob) {
-  return new Float32Array(0); // Groqのみなので不要
+  return new Float32Array(0);
 }
 
 
@@ -978,7 +919,7 @@ function loopMonitor() {
 
 function afterSpeakThenRecord() {
   setTimeout(() => {
-    if (isModelReady && currentTurn < 2 && DOM.viewResultBtn?.classList.contains("hidden")) {
+    if (isModelReady && currentTurn < 3 && DOM.viewResultBtn?.classList.contains("hidden")) {
       if (DOM.statusText) DOM.statusText.textContent = "タップして話す";
       if (DOM.micHint) DOM.micHint.textContent = "マイクを押してください";
       if (DOM.micBtn) {
@@ -1013,23 +954,38 @@ async function processTurn() {
       if (DOM.statusText) DOM.statusText.textContent = "AI が考えています...";
       updateProgress(35, "35%");
       if (blob) getAcoustic(blob).then(f => { lastAcoustic = f; }).catch(() => {});
-      const messages = [{ role: "system", content: buildTurnSystem("followup", currentOpening) }, ...conversationLog];
+      const messages = [{ role: "system", content: buildTurnSystem("first", currentOpening) }, ...conversationLog];
       const rawReply = await callLLM(messages);
-      const reply = rawReply.trim() || "そうなんですね。もう少し詳しく教えてもらえますか？";
+      const reply = rawReply.trim() || "そうなんだね、どんな感じだった？";
       conversationLog.push({ role: "assistant", content: reply });
-      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/\n/g, "<br>");
+      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/
+/g, "<br>");
       speakAI(reply, afterSpeakThenRecord);
       return;
     }
 
     if (currentTurn === 2) {
       if (DOM.statusText) DOM.statusText.textContent = "AI が考えています...";
-      updateProgress(65, "65%");
+      updateProgress(60, "60%");
+      const messages = [{ role: "system", content: buildTurnSystem("second", currentOpening) }, ...conversationLog];
+      const rawReply = await callLLM(messages);
+      const reply = rawReply.trim() || "そっか、どんな時に一番そう感じる？";
+      conversationLog.push({ role: "assistant", content: reply });
+      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/
+/g, "<br>");
+      speakAI(reply, afterSpeakThenRecord);
+      return;
+    }
+
+    if (currentTurn === 3) {
+      if (DOM.statusText) DOM.statusText.textContent = "AI が考えています...";
+      updateProgress(75, "75%");
       const closeMessages = [{ role: "system", content: buildTurnSystem("close", currentOpening) }, ...conversationLog];
       const rawSummary = await callLLM(closeMessages);
-      const summary = rawSummary.trim() || "話してくれてありがとう。";
+      const summary = rawSummary.trim() || "話してくれてありがとう。少しゆっくりしてみようね。";
       conversationLog.push({ role: "assistant", content: summary });
-      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = summary.replace(/\n/g, "<br>");
+      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = summary.replace(/
+/g, "<br>");
       if (!Object.keys(lastAcoustic).length && lastAudioBlob) {
         lastAcoustic = await getAcoustic(lastAudioBlob);
       }
@@ -1039,7 +995,9 @@ async function processTurn() {
       const recovery = pickRecovery(scores);
       const diagMsgs = [
         { role: "system", content: `あなたは優しいアドバイザーです。出力は必ず次の JSON のみ。{"title":"〇〇な疲れ","detail":"ユーザーに語りかける 2〜3 文。"}` },
-        { role: "user", content: `身体:${scores.physical} 脳:${scores.brain} 精神:${scores.mental} 総合:${scores.total}\n${conversationLog.map(m => (m.role === "user" ? "ユーザー" : "AI") + "：" + m.content).join("\n")}` }
+        { role: "user", content: `身体:${scores.physical} 脳:${scores.brain} 精神:${scores.mental} 総合:${scores.total}
+${conversationLog.map(m => (m.role === "user" ? "ユーザー" : "AI") + "：" + m.content).join("
+")}` }
       ];
       const rawDiag = await callLLM(diagMsgs);
       const { title, detail } = parseDiagnosisJSON(rawDiag, scores);
