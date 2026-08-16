@@ -22,53 +22,13 @@
                 <input type="text" placeholder="あなたに合ったケアを検索" class="bg-transparent border-none outline-none text-sm text-gray-700 w-full placeholder-gray-400 font-bold">
             </div>
             <h2 class="text-base font-bold text-gray-800 mb-4 tracking-wider">Rimiさんへのおすすめ</h2>
-            <div id="care-list" class="flex flex-col gap-6 pb-6 w-full shrink-0">
-                <div class="wavy-card bg-white/80 flex flex-col group cursor-pointer border-l-[6px] border-l-purple-400" data-type="mental">
-                    <div class="h-40 w-full relative overflow-hidden">
-                        <img src="https://images.unsplash.com/photo-1518241353330-0f7941c2d9b5?auto=format&fit=crop&q=80&w=400&h=200" alt="Meditation" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                        <div class="absolute bottom-3 left-3 right-3 text-white">
-                            <span class="bg-purple-500/80 backdrop-blur-sm px-2 py-0.5 rounded text-xs font-bold mb-1.5 inline-block shadow-sm"># マインドフルネス</span>
-                            <h3 class="font-bold text-sm leading-snug drop-shadow-md">心を落ち着かせるための、夜の10分間瞑想</h3>
-                            <p class="hidden">静かな場所で目を閉じ、呼吸に意識を向けます。雑念が浮かんでも否定せず、ただ呼吸に戻ることで心が落ち着きます。</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="wavy-card bg-white/80 flex flex-col group cursor-pointer border-l-[6px] border-l-green-400" data-type="brain">
-                    <div class="h-40 w-full relative overflow-hidden">
-                        <img src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=400&h=200" alt="Nature" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                        <div class="absolute bottom-3 left-3 right-3 text-white">
-                            <span class="bg-green-500/80 backdrop-blur-sm px-2 py-0.5 rounded text-xs font-bold mb-1.5 inline-block shadow-sm"># 自然音</span>
-                            <h3 class="font-bold text-sm leading-snug drop-shadow-md">波の音でリラックス：脳疲労をやわらげるBGM</h3>
-                            <p class="hidden">脳の疲れを癒やす1/fゆらぎ。目を閉じて聴くだけで、リラックス効果のあるα波が高まります。</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="mt-2 mb-2"><h2 class="text-sm font-bold text-gray-800 tracking-wider">人気のアクティビティ</h2></div>
-                <div class="wavy-card bg-white/80 flex flex-col group cursor-pointer border-l-[6px] border-l-orange-300" data-type="body">
-                    <div class="h-32 w-full relative overflow-hidden">
-                        <img src="https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&q=80&w=400&h=150" alt="Journaling" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                        <div class="absolute bottom-3 left-3 right-3 text-white">
-                            <span class="bg-orange-500/80 backdrop-blur-sm px-2 py-0.5 rounded text-xs font-bold mb-1.5 inline-block shadow-sm"># ストレッチ</span>
-                            <h3 class="font-bold text-sm leading-snug drop-shadow-md">感情を書き出す：1日をリセットするステップ</h3>
-                            <p class="hidden">今の感情をありのまま紙に書き出すことで、ストレスが客観視され、脳のワーキングメモリが解放されます。</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="wavy-card bg-white/80 flex flex-col group cursor-pointer border-l-[6px] border-l-blue-400" data-type="body">
-                    <div class="h-32 w-full relative overflow-hidden">
-                        <img src="https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&q=80&w=400&h=150" alt="Stretch" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                        <div class="absolute bottom-3 left-3 right-3 text-white">
-                            <span class="bg-blue-500/80 backdrop-blur-sm px-2 py-0.5 rounded text-xs font-bold mb-1.5 inline-block shadow-sm"># 入浴</span>
-                            <h3 class="font-bold text-sm leading-snug drop-shadow-md">身体の芯から温める、理想の入浴法</h3>
-                            <p class="hidden">ぬるめのお湯にゆっくり浸かることで、副交感神経が優位になり、深い眠りへと誘います。</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <!-- care-listは空でOK -->
+            <div id="care-list" class="flex flex-col gap-6 pb-6"></div>
+<!-- 読み込み順、これが重要 -->
+<script src="js/app.js"></script>
+<script src="js/restDB.js"></script>
+<script src="js/care.js"></script> <!-- 新規DB版 -->
+<!-- 旧 js/script.js は削除 or care.jsの後に -->
         </main>
         <nav class="global-nav">
             <a href="home.html" class="flex flex-col items-center transition text-gray-400 hover:text-green-500"><span class="material-icons-outlined text-3xl">home</span><span class="text-xs mt-1">ホーム</span></a>

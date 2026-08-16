@@ -5,6 +5,75 @@
 const BACKEND_URL = "https://voicechat-9w4o.onrender.com";
 const CHAT_URL = "/api/chat";
 
+// ==================== Restee DB連携 v3 ====================
+const REST_DB_GAS_URL = "https://script.google.com/macros/s/AKfycbwwwW0xmxd60FLG1a7Nijc0DsF9CfpBEe3YtQD19-C10xC7_RrURocUeuA1yJEsDX-50g/exec"; // ★ここを置き換え
+const REST_DB_LOCAL_JSON = "./data/restDatabase.json";
+
+const RestDB = (() => {
+  let useLocal = false;
+  function parseYouTubeId(urlOrId) {
+    if (!urlOrId) return "";
+    if (/^[a-zA-Z0-9_-]{11}$/.test(urlOrId)) return urlOrId;
+    try {
+      const u = new URL(urlOrId);
+      if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("/")[0];
+      if (u.searchParams.get("v")) return u.searchParams.get("v");
+      const m = u.pathname.match(/\/embed\/([a-zA-Z0-9_-]{11})/);
+      if (m) return m[1];
+    } catch {}
+    const m = urlOrId.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/);
+    return m ? m[1] : "";
+  }
+  function enrich(m) {
+    return {
+      ...m,
+      youtubeId: m.youtubeId || parseYouTubeId(m.youtubeUrl || ""),
+      imageUrl: m.imageUrl || m.image || "",
+      fatigueTypes: m.fatigueTypes || (m.category ? [m.category] : []),
+      tags: m.tags || []
+    };
+  }
+  async function load({ type = "all", tag = "", level = "", q = "" } = {}) {
+    const params = new URLSearchParams({ type, tag, level, q });
+    const url = useLocal ? REST_DB_LOCAL_JSON : `${REST_DB_GAS_URL}?${params}`;
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(res.status);
+      const json = await res.json();
+      let methods = (json.methods || json).map(enrich);
+      if (useLocal) {
+        if (type !== "all") methods = methods.filter(m => (m.fatigueTypes||[]).includes(type));
+        if (q) { const qq = q.toLowerCase(); methods = methods.filter(m => (m.title + m.description + (m.tags||[]).join("")).toLowerCase().includes(qq)); }
+      }
+      try { localStorage.setItem("restee_rest_cache_v3", JSON.stringify({ t: Date.now(), methods })); } catch {}
+      return methods;
+    } catch (e) {
+      console.warn("[RestDB] fetch failed, fallback", e);
+      try {
+        const saved = JSON.parse(localStorage.getItem("restee_rest_cache_v3") || "null");
+        if (saved?.methods?.length) return saved.methods.map(enrich);
+      } catch {}
+      if (!useLocal) { useLocal = true; return load({ type, tag, level, q }); }
+      return [];
+    }
+  }
+  function pickForResult(scores, methods) {
+    const map = { physical: "body", brain: "brain", mental: "mental" };
+    const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
+    const topType = map[sorted[0][0]] || "body";
+    const secondType = sorted[1] ? map[sorted[1][0]] : null;
+    let cands = methods.filter(m => (m.fatigueTypes||[]).includes(topType));
+    if (cands.length < 4 && secondType) cands = [...cands, ...methods.filter(m => (m.fatigueTypes||[]).includes(secondType))];
+    if (cands.length < 4) cands = [...cands, ...methods];
+    const uniq = [...new Map(cands.map(m=>[m.id,m])).values()];
+    uniq.sort((a,b) => (a.level==="light"?0:1) - (b.level==="light"?0:1) || a.timeMin - b.timeMin);
+    return uniq.slice(0, 4);
+  }
+  return { load, pickForResult, parseYouTubeId, _setUseLocal: v=>useLocal=v };
+})();
+// ==================== RestDB ここまで ====================
+
+
 const TRANSFORMERS_CANDIDATES = [
   "https://esm.sh/@huggingface/transformers@3.7.2",
   "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2/+esm",
@@ -147,11 +216,11 @@ const LOAD_COPIES = [
   "まもなくお話しできます…"
 ];
 
-const SYSTEM_BASE = `あなたはユーザーの疲れに寄り添う、自然でやわらかい聞き手です。\n厳守: 60 文字以内 1〜2 文。まず受け止め共感。質問最大 1 つ。箇条書き・診断・スコア禁止。`;
+const SYSTEM_BASE = `あなたはユーザーの疲れに寄り添う、自然でやわらかい日本語話者の聞き手です。\n厳守: 60 文字以内 1〜2 文。まず受け止め共感。箇条書き・診断・スコア禁止。`;
 
 function buildTurnSystem(phase, openingText) {
-  if (phase === "followup") return `${SYSTEM_BASE}\n今は 2 回目。最初は「${openingText}」①受け止め②違う角度で 1 つだけ深掘り。同じ聞き直し禁止。`;
-  return `${SYSTEM_BASE}\n最後の発話。これまでを 1 文で受け止め「話してくれてありがとう」で終える。質問禁止。40 文字以内。`;
+  if (phase === "followup") return `${SYSTEM_BASE}\n今は 2 回目。最初は「${openingText}」①受け止め②違う角度で 1 つだけ深掘り質問。同じ聞き直し禁止。`;
+  return `${SYSTEM_BASE}\n最後の発話。これまでを 1 文で受け止めた後、「話してくれてありがとう」で終える。質問禁止。40 文字以内。`;
 }
 
 const FATIGUE_DEFS = {
@@ -431,7 +500,7 @@ async function speakWithKokoro(text) {
 }
 
 // Piper-plus WASMフォールバック (超軽量、日本語特化) - 必要なら有効化
-// 現状はKokoroがメインなので未実装、必要なら piper-plus のWASMをロード
+// 現状は未実装、必要なら piper-plus のWASMをロード
 async function speakWithPiper(text) {
   // 実装例: https://github.com/shiena/piper-plus
   // import { PiperPlus } from "https://esm.sh/piper-plus"
@@ -527,6 +596,7 @@ function pickRecovery(scores) {
 }
 
 function renderRecovery(sugs) {
+  // フォールバック用（旧UI）
   if (!DOM.recoveryList) return;
   DOM.recoveryList.innerHTML = sugs.map((s, i) =>
     `<div class="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 flex items-center gap-3 slide-up" style="animation-delay:${0.05 * i}s">
@@ -540,6 +610,78 @@ function renderRecovery(sugs) {
     </div>`
   ).join("");
 }
+
+// 新: DBから画像+YouTube付きで描画
+async function renderRecoveryFromDB(scores) {
+  const listEl = DOM.recoveryList || document.getElementById("recoveryList");
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="text-[11px] text-slate-400 px-1 py-2">あなたに合うケアをデータベースから探しています...</p>';
+  let methods = [];
+  try {
+    methods = await RestDB.load({ type: "all" });
+    if (!methods.length) throw new Error("empty");
+  } catch (e) {
+    console.warn("[DB] load failed, fallback to RECOVERY", e);
+    const { suggestions } = pickRecovery(scores);
+    renderRecovery(suggestions);
+    return;
+  }
+  const picks = RestDB.pickForResult(scores, methods);
+  listEl.innerHTML = "";
+  picks.forEach((m, i) => {
+    const thumb = m.youtubeId ? `https://img.youtube.com/vi/${m.youtubeId}/mqdefault.jpg` : m.imageUrl;
+    const card = document.createElement("div");
+    card.className = "bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden slide-up cursor-pointer hover:shadow-md transition";
+    card.style.animationDelay = `${0.05 * i}s`;
+    card.innerHTML = `
+      <div class="flex gap-3 p-3">
+        <div class="w-20 h-20 rounded-xl overflow-hidden shrink-0 relative bg-slate-100">
+          <img src="${thumb || ''}" alt="${m.title}" class="w-full h-full object-cover" loading="lazy" referrerpolicy="no-referrer">
+          ${m.youtubeId ? '<div class="absolute inset-0 flex items-center justify-center"><div class="w-6 h-6 bg-white/90 rounded-full flex items-center justify-center shadow"><span class="material-icons-outlined text-[14px] text-red-600 ml-[1px]">play_arrow</span></div></div>' : ''}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold ${m.category==='body'?'bg-orange-100 text-orange-600':m.category==='brain'?'bg-blue-100 text-blue-600':'bg-purple-100 text-purple-600'}">${m.category==='body'?'身体':m.category==='brain'?'脳':'精神'}</span>
+            <span class="text-[9px] text-slate-400">${m.timeMin}分 • ${m.level==='light'?'軽め':m.level==='medium'?'普通':'しっかり'}</span>
+          </div>
+          <p class="text-[12px] font-bold text-slate-700 leading-tight line-clamp-2">${m.title}</p>
+          <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">${m.description||''}</p>
+        </div>
+        <span class="material-icons-outlined text-slate-300 text-[18px] self-center">chevron_right</span>
+      </div>
+    `;
+    card.addEventListener("click", () => expandInlineDetail(card, m));
+    listEl.appendChild(card);
+  });
+  const more = document.createElement("a");
+  more.href = "care.html";
+  more.className = "block text-center text-[11px] text-green-600 font-bold mt-3 underline";
+  more.textContent = "もっとケアを見る →";
+  listEl.appendChild(more);
+}
+
+function expandInlineDetail(anchorEl, m) {
+  const existing = anchorEl.nextElementSibling;
+  if (existing && existing.classList.contains("inline-detail")) { existing.remove(); return; }
+  document.querySelectorAll(".inline-detail").forEach(el => el.remove());
+  const detail = document.createElement("div");
+  detail.className = "inline-detail bg-white rounded-2xl p-4 border border-green-100 -mt-1 mb-2 space-y-3 slide-up";
+  detail.innerHTML = `
+    <div class="space-y-2">
+      <p class="text-[12px] text-slate-600 leading-relaxed">${m.detail || m.description || ''}</p>
+      ${m.steps?.length ? `<ol class="list-decimal pl-4 text-[11px] text-slate-600 space-y-1">${m.steps.map(s=>`<li>${s}</li>`).join('')}</ol>` : ''}
+    </div>
+    ${m.youtubeId ? `<div class="space-y-1"><p class="text-[10px] font-bold text-slate-500">動画で見る</p><div class="aspect-video rounded-xl overflow-hidden bg-black"><iframe src="https://www.youtube-nocookie.com/embed/${m.youtubeId}?rel=0&modestbranding=1" class="w-full h-full" frameborder="0" allowfullscreen loading="lazy" referrerpolicy="no-referrer"></iframe></div><a href="${m.youtubeUrl||'https://www.youtube.com/watch?v='+m.youtubeId}" target="_blank" class="text-[10px] text-blue-500 underline">YouTubeで開く</a></div>` : ''}
+    ${m.imageUrl ? `<img src="${m.imageUrl}" alt="${m.title}" class="w-full rounded-xl object-cover max-h-48" loading="lazy" referrerpolicy="no-referrer"><p class="text-[9px] text-slate-400">${m.imageCredit||''} ${m.license? '• '+m.license:''}</p>` : ''}
+    <div class="bg-slate-50 rounded-xl p-2.5 space-y-1">
+      ${m.sourceName ? `<p class="text-[10px] text-slate-500">出典: ${m.sourceName} ${m.sourceUrl ? `<a href="${m.sourceUrl}" target="_blank" class="underline text-blue-500">リンク</a>` : ''}</p>` : ''}
+      ${m.contraindication ? `<p class="text-[11px] text-orange-600 bg-orange-50 p-2 rounded">⚠️ ${m.contraindication}</p>` : ''}
+    </div>
+  `;
+  anchorEl.insertAdjacentElement("afterend", detail);
+  detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 
 function titleFromScores(scores) {
   const e = [["身体", scores.physical], ["脳", scores.brain], ["精神", scores.mental]].sort((a, b) => b[1] - a[1]);
@@ -671,7 +813,7 @@ async function loadModel() {
       DOM.micBtn.classList.remove("opacity-50");
     }
     setMicUI(false);
-    if (DOM.statusText) DOM.statusText.textContent = useNativeASR ? "軽量モードで開始（タップ）" : "タップして開始";
+    if (DOM.statusText) DOM.statusText.textContent = useNativeASR ? "開始（タップ）" : "タップして開始";
     if (DOM.micHint) DOM.micHint.textContent = "ここを押して会話をはじめる";
   } catch (e) {
     console.error("[loadModel] fatal", e);
@@ -687,7 +829,7 @@ async function loadModel() {
       isModelReady = true;
       useNativeASR = true;
       iosNativeMode = !isMediaRecorderSupported();
-      if (DOM.statusText) DOM.statusText.textContent = "軽量モードで開始（タップ）";
+      if (DOM.statusText) DOM.statusText.textContent = "開始（タップ）";
       currentOpening = OPENINGS[0];
       conversationLog = [{ role: "assistant", content: currentOpening }];
       if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = currentOpening;
@@ -696,7 +838,66 @@ async function loadModel() {
 }
 
 async function blobToFloat32(blob) {
-  return new Float32Array(0);
+  if (!blob?.size) return new Float32Array(0);
+
+  const arrayBuffer = await blob.arrayBuffer();
+  if (!arrayBuffer.byteLength) return new Float32Array(0);
+
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return new Float32Array(0);
+
+  let ctx = null;
+
+  try {
+    ctx = new AC();
+    if (ctx.state === "suspended") await ctx.resume();
+
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const input = audioBuffer.getChannelData(0);
+    const targetRate = 16000;
+
+    if (audioBuffer.sampleRate === targetRate) {
+      return new Float32Array(input);
+    }
+
+    const length = Math.ceil(audioBuffer.duration * targetRate);
+    const offline = new OfflineAudioContext(1, Math.max(1, length), targetRate);
+
+    const source = offline.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offline.destination);
+    source.start(0);
+
+    const rendered = await offline.startRendering();
+    return new Float32Array(rendered.getChannelData(0));
+  } catch (error) {
+    console.error("[blobToFloat32] decode failed:", {
+      name: error?.name,
+      message: error?.message,
+      type: blob.type,
+      size: blob.size
+    });
+    return new Float32Array(0);
+  } finally {
+    try {
+      if (ctx && ctx.state !== "closed") await ctx.close();
+    } catch {}
+  }
+}
+
+async function transcribe(float32, originalBlob) {
+  // Groq優先
+  if (originalBlob) {
+    const groqText = await transcribeWithGroq(originalBlob, 3);
+    if (groqText && groqText.length>=1) return preprocessText(groqText);
+  }
+  const fb = preprocessText(iosLastTranscript);
+  if (fb.length>=2) return fb;
+  return "（聞き取れませんでした）";
+}
+
+async function blobToFloat32(blob) {
+  return new Float32Array(0); // Groqのみなので不要
 }
 
 
@@ -919,7 +1120,7 @@ function loopMonitor() {
 
 function afterSpeakThenRecord() {
   setTimeout(() => {
-    if (isModelReady && currentTurn < 3 && DOM.viewResultBtn?.classList.contains("hidden")) {
+    if (isModelReady && currentTurn < 2 && DOM.viewResultBtn?.classList.contains("hidden")) {
       if (DOM.statusText) DOM.statusText.textContent = "タップして話す";
       if (DOM.micHint) DOM.micHint.textContent = "マイクを押してください";
       if (DOM.micBtn) {
@@ -954,38 +1155,23 @@ async function processTurn() {
       if (DOM.statusText) DOM.statusText.textContent = "AI が考えています...";
       updateProgress(35, "35%");
       if (blob) getAcoustic(blob).then(f => { lastAcoustic = f; }).catch(() => {});
-      const messages = [{ role: "system", content: buildTurnSystem("first", currentOpening) }, ...conversationLog];
+      const messages = [{ role: "system", content: buildTurnSystem("followup", currentOpening) }, ...conversationLog];
       const rawReply = await callLLM(messages);
-      const reply = rawReply.trim() || "そうなんだね、どんな感じだった？";
+      const reply = rawReply.trim() || "そうなんですね。もう少し詳しく教えてもらえますか？";
       conversationLog.push({ role: "assistant", content: reply });
-      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/
-/g, "<br>");
+      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/\n/g, "<br>");
       speakAI(reply, afterSpeakThenRecord);
       return;
     }
 
     if (currentTurn === 2) {
       if (DOM.statusText) DOM.statusText.textContent = "AI が考えています...";
-      updateProgress(60, "60%");
-      const messages = [{ role: "system", content: buildTurnSystem("second", currentOpening) }, ...conversationLog];
-      const rawReply = await callLLM(messages);
-      const reply = rawReply.trim() || "そっか、どんな時に一番そう感じる？";
-      conversationLog.push({ role: "assistant", content: reply });
-      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = reply.replace(/
-/g, "<br>");
-      speakAI(reply, afterSpeakThenRecord);
-      return;
-    }
-
-    if (currentTurn === 3) {
-      if (DOM.statusText) DOM.statusText.textContent = "AI が考えています...";
-      updateProgress(75, "75%");
+      updateProgress(65, "65%");
       const closeMessages = [{ role: "system", content: buildTurnSystem("close", currentOpening) }, ...conversationLog];
       const rawSummary = await callLLM(closeMessages);
-      const summary = rawSummary.trim() || "話してくれてありがとう。少しゆっくりしてみようね。";
+      const summary = rawSummary.trim() || "話してくれてありがとう。";
       conversationLog.push({ role: "assistant", content: summary });
-      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = summary.replace(/
-/g, "<br>");
+      if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = summary.replace(/\n/g, "<br>");
       if (!Object.keys(lastAcoustic).length && lastAudioBlob) {
         lastAcoustic = await getAcoustic(lastAudioBlob);
       }
@@ -994,10 +1180,8 @@ async function processTurn() {
       const scores = await scoreWithFallback(allUserTexts.join("。"), lastAcoustic, lastAudioBlob);
       const recovery = pickRecovery(scores);
       const diagMsgs = [
-        { role: "system", content: `あなたは優しいアドバイザーです。出力は必ず次の JSON のみ。{"title":"〇〇な疲れ","detail":"ユーザーに語りかける 2〜3 文。"}` },
-        { role: "user", content: `身体:${scores.physical} 脳:${scores.brain} 精神:${scores.mental} 総合:${scores.total}
-${conversationLog.map(m => (m.role === "user" ? "ユーザー" : "AI") + "：" + m.content).join("
-")}` }
+        { role: "system", content: `あなたは優しいアドバイザーです。出力は必ず次の JSON のみ。{"title":"〇〇な疲れ","detail":"ユーザーに語りかける 2〜3 文。疲れの傾向を分析したうえでの文章。"}` },
+        { role: "user", content: `身体:${scores.physical} 脳:${scores.brain} 精神:${scores.mental} 総合:${scores.total}\n${conversationLog.map(m => (m.role === "user" ? "ユーザー" : "AI") + "：" + m.content).join("\n")}` }
       ];
       const rawDiag = await callLLM(diagMsgs);
       const { title, detail } = parseDiagnosisJSON(rawDiag, scores);
@@ -1005,7 +1189,7 @@ ${conversationLog.map(m => (m.role === "user" ? "ユーザー" : "AI") + "：" +
       if (te) te.textContent = title;
       if (de) de.textContent = detail;
       applyScoreUI(scores);
-      renderRecovery(recovery.suggestions);
+      await renderRecoveryFromDB(scores);
       const saveData = { ...scores, fatigueTitle: title, fatigueDetail: detail, conversation: conversationLog, final: scores };
       if (window.ResteeApp?.saveScanResult) {
         window.ResteeApp.saveScanResult(saveData);
