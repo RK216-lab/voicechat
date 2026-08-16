@@ -297,10 +297,19 @@ async function transcribe(float32) {
   if (transcriber) { try { let out; try { out = await transcriber({ array: float32, sampling_rate: 16000 }); } catch { out = await transcriber(float32); } if (out?.text?.trim()) return preprocessText(out.text); } catch (e) { console.warn("[Moonshine transcribe]", e); } }
   return getFallback() || "（聞き取れませんでした）";
 }
-async function callLLM(messages){
-  const res=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages})});
-  const data=await res.json();
-  return data.text||data.choices?.[0]?.message?.content||"";
+async function callLLM(messages) {
+  const res = await fetch("https://voicechat-gz4j.onrender.com/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages })
+  });
+
+  if (!res.ok) {
+    throw new Error(`LLM呼び出しエラー: ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.text || data.choices?.[0]?.message?.content || "";
 }
 async function getAcoustic(blob) {
   try {
