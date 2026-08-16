@@ -208,8 +208,9 @@ async function loadModel() {
     env.allowLocalModels = false;
     env.useBrowserCache = true;
     if (env.backends?.onnx?.wasm) {
-      try { env.backends.onnx.wasm.numThreads = IS_IOS ? 1 : (navigator.hardwareConcurrency || 4); } catch {}
+      try { env.backends.onnx.wasm.numThreads = 1; } catch {}
       try { env.backends.onnx.wasm.simd = true; } catch {}
+      try { env.backends.onnx.wasm.proxy = false; } catch {}
     }
 
     updateProgress(15, "15%");
@@ -512,10 +513,23 @@ async function speakAI(text, onEnd, maxRetries = 1) {
 function initScan() {
   bindDOM(); if (!DOM.micBtn) return; resetSessionState(); installAudioUnlock(); let handling = false;
   DOM.micBtn.addEventListener("click", async () => {
+    console.log("[mic click]", {isModelReady, isSpeaking, isConversationStarted, isRecording});
     if (handling) return; handling = true;
     try {
-      await unlockAudioContext(); if (!isModelReady || isSpeaking) return;
-      if (!isConversationStarted) { isConversationStarted = true; DOM.micBtn.disabled = true; DOM.micBtn.classList.add("opacity-50"); if (DOM.statusText) DOM.statusText.textContent = "準備中..."; if (DOM.micHint) DOM.micHint.textContent = "AIが話します..."; speakAI(currentOpening, () => { if (DOM.statusText) DOM.statusText.textContent = "タップして話す"; if (DOM.micHint) DOM.micHint.textContent = "マイクを押して話し始めてください"; if (DOM.micBtn) { DOM.micBtn.disabled = false; DOM.micBtn.classList.remove("opacity-50"); } }); return; }
+      await unlockAudioContext(); 
+      if (!isModelReady) { console.warn("not ready"); return; }
+      if (isSpeaking) { console.warn("still speaking, skip"); return; }
+      if (!isConversationStarted) { 
+        isConversationStarted = true; 
+        console.log("[first start] opening:", currentOpening);
+        if (DOM.statusText) DOM.statusText.textContent = "タップして話す"; 
+        if (DOM.micHint) DOM.micHint.textContent = "マイクを押して話してください";
+        if (DOM.micBtn) { DOM.micBtn.disabled = false; DOM.micBtn.classList.remove("opacity-50"); }
+        setMicUI(false);
+        // 最初はTTS鳴らさず文字だけで開始。裏でこっそり鳴らす
+        try { speakAI(currentOpening, ()=>{}); } catch(e){ console.warn(e); }
+        return; 
+      }
       if (isRecording) stopRecording(); else await startRecording();
     } finally { handling = false; }
   });
