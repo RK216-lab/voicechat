@@ -30,7 +30,7 @@ restee-app/
 5. **知る**: 検索入力とタグフィルタで記事を絞り込み。ケアモーダルは共通script.jsで動作
 
 ## バックエンド連携
-- `BACKEND_URL` は `js/scan.js` 内で定義。現在 `https://voicechat-gz4j.onrender.com`
+- `BACKEND_URL` は `js/scan.js` 内で定義。現在 `https://voicechat-9w4o.onrender.com`
 - ローカルで動かす場合: `uvicorn backend.main:app --reload` し、scan.jsのURLを `http://localhost:8000` に変更
 - フロントは静的ファイルなので、Vercel/Renderで `restee-app` フォルダをデプロイすればOK。 `/api/chat` は `backend/chat.js` を `api/chat.js` として配置
 

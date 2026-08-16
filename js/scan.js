@@ -10,7 +10,7 @@
    - Embedding独立、LocalTTS遅延ロード
    ========================================================= */
 
-const BACKEND_URL = "https://voicechat-gz4j.onrender.com";
+const BACKEND_URL = "https://voicechat-9w4o.onrender.com";
 
 const TRANSFORMERS_CANDIDATES = [
   "https://esm.sh/@huggingface/transformers@3.7.2",
@@ -298,7 +298,7 @@ async function transcribe(float32) {
   return getFallback() || "（聞き取れませんでした）";
 }
 async function callLLM(messages) {
-  const res = await fetch("https://voicechat-gz4j.onrender.com/api/chat", {
+  const res = await fetch("https://voicechat-9w4o.onrender.com/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages })
