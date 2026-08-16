@@ -19,8 +19,8 @@ const ASR_MODEL_CANDIDATES = [
 const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 const LOCAL_TTS_MODEL = "Xenova/mms-tts-jpn";
 
-const SILENCE_THRESHOLD = 0.011;
-const SILENCE_MS = 2200;
+const SILENCE_THRESHOLD = 0.008;
+const SILENCE_MS = 1800;
 const POST_TTS_GAP_MS = 500;
 const MAX_RECORDING_MS = 20000;
 
@@ -62,7 +62,7 @@ function resetSessionState() {
 
 function getSupportedMimeType() {
   if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
-  const order = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/aac"];
+  const order = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"];
   for (const t of order) { try { if (MediaRecorder.isTypeSupported(t)) return t; } catch {} }
   return "";
 }
@@ -281,9 +281,10 @@ async function loadModel() {
 }
 
 async function blobToFloat32(blob) {
+  console.log("[blob]", blob?.type, blob?.size);
   if (!blob?.size) return new Float32Array(0);
   try {
-    const ab = await blob.arrayBuffer(); if (!ab.byteLength) return new Float32Array(0);
+    const ab = await blob.arrayBuffer(); console.log("[ab]", ab.byteLength); if (!ab.byteLength) return new Float32Array(0);
     const AC = window.AudioContext || window.webkitAudioContext;
     for (const opts of [{ sampleRate: 16000 }, {}]) {
       try { const ctx = new AC(opts); const buf = await ctx.decodeAudioData(ab.slice(0)); let data = buf.getChannelData(0); if (buf.sampleRate !== 16000 && buf.duration > 0) { const len = Math.max(1, Math.ceil(buf.duration * 16000)); const off = new OfflineAudioContext(1, len, 16000); const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(); const rendered = await off.startRendering(); data = rendered.getChannelData(0); } try { await ctx.close(); } catch {} return new Float32Array(data); } catch (err) { console.warn("[decode try]", opts, err.message); }
@@ -294,8 +295,9 @@ async function blobToFloat32(blob) {
 
 // 【修正①】文字起こし関数のパラメータ修復
 async function transcribe(float32) {
-  const getFallback = () => { const t = preprocessText(iosLastTranscript); return t.length >= 2 ? t : ""; };
-  if (!float32?.length) return getFallback() || "（聞き取れませんでした）";
+  console.log("[transcribe] float32 len", float32?.length, "iosLastTranscript:", iosLastTranscript);
+  const getFallback = () => { const t = preprocessText(iosLastTranscript); console.log("[fallback transcript]", t); return t.length >= 2 ? t : ""; };
+  if (!float32?.length || float32.length < 8000) { console.warn("float32 too short, use fallback"); return getFallback() || "（聞き取れませんでした）"; }
   
   if (transcriber) {
     try {
@@ -390,8 +392,8 @@ async function startRecording() {
     if (AC) { analyserContext = new AC(); if (analyserContext.state === "suspended") await analyserContext.resume(); const src = analyserContext.createMediaStreamSource(stream); analyser = analyserContext.createAnalyser(); analyser.fftSize = 512; src.connect(analyser); }
     mediaRecorder.start(200); isRecording = true; silenceStart = null;
     DOM.waveContainer?.classList.remove("hidden"); if (DOM.statusText) DOM.statusText.textContent = "あなたのお話を聞いています..."; setMicUI(true);
-    if (useNativeASR && recognition) { try { recognition.start(); } catch {} }
-    else if (!AVOID_CONCURRENCY && recognition && !transcriber) { try { recognition.start(); } catch {} }
+    // 常にWeb Speechも並走させて日本語フォールバック確保
+    if (recognition) { try { iosLastTranscript=""; recognition.start(); console.log("[SR] started parallel"); } catch(e){ console.warn("[SR] start fail", e); } }
     recordingTimeoutId = setTimeout(() => { if (isRecording) stopRecording(); }, MAX_RECORDING_MS); loopMonitor();
   } catch (e) { console.error(e); isRecording = false; if (DOM.statusText) DOM.statusText.textContent = "マイクの許可が必要です。設定を確認してください"; setMicUI(false); }
 }
