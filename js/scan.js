@@ -297,11 +297,12 @@ async function transcribe(float32) {
   if (transcriber) { try { let out; try { out = await transcriber({ array: float32, sampling_rate: 16000 }); } catch { out = await transcriber(float32); } if (out?.text?.trim()) return preprocessText(out.text); } catch (e) { console.warn("[Moonshine transcribe]", e); } }
   return getFallback() || "（聞き取れませんでした）";
 }
+// 修正後
 async function callLLM(messages) {
   const res = await fetch("https://voicechat-9w4o.onrender.com/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages })
+    body: JSON.stringify({ messages }) // 配列 messages をオブジェクトのプロパティとして包む
   });
 
   if (!res.ok) {
