@@ -369,6 +369,77 @@ function getAudioExtension_v4(blob) {
   return "webm";
 }
 
+
+// ★v5: 無料日本語WASM TTS - Kokoro-82M + Piper-plus フォールバック (Web Speech API不使用)
+let kokoroTTS = null;
+let kokoroLoading = null;
+
+async function loadKokoroTTS() {
+  if (kokoroTTS) return kokoroTTS;
+  if (kokoroLoading) return kokoroLoading;
+  kokoroLoading = (async () => {
+    try {
+      console.log("[Kokoro] loading kokoro-js...");
+      // esm.sh経由でkokoro-jsを動的import
+      const mod = await import("https://esm.sh/kokoro-js@1.2.1?bundle&external=@huggingface/transformers");
+      const { KokoroTTS } = mod;
+      console.log("[Kokoro] from_pretrained onnx-community/Kokoro-82M-v1.0-ONNX q8 wasm");
+      const tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+        dtype: "q8",
+        device: "wasm",
+      });
+      kokoroTTS = tts;
+      console.log("[Kokoro] ready");
+      return tts;
+    } catch(e) {
+      console.warn("[Kokoro] failed", e);
+      throw e;
+    } finally {
+      kokoroLoading = null;
+    }
+  })();
+  return kokoroLoading;
+}
+
+async function speakWithKokoro(text) {
+  if (!text?.trim()) return;
+  await unlockAudioContext();
+  const tts = await loadKokoroTTS();
+  // jf_alpha, jf_gongitsune, jf_nezumi, jf_tebukuro, jm_kumo が日本語対応
+  // jf_alphaが一番自然
+  const voice = "jf_alpha";
+  console.log(`[Kokoro] generate voice=${voice} text=${text.slice(0,30)}...`);
+  const audio = await tts.generate(text, { voice });
+  // audio.audio is Float32Array, audio.sampling_rate
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  if (ctx.state === "suspended") await ctx.resume();
+  try {
+    const buf = ctx.createBuffer(1, audio.audio.length, audio.sampling_rate);
+    buf.getChannelData(0).set(audio.audio);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    await new Promise((resolve, reject)=>{
+      src.onended = resolve;
+      src.onerror = reject;
+      src.start(0);
+    });
+  } finally {
+    try { await ctx.close(); } catch {}
+  }
+}
+
+// Piper-plus WASMフォールバック (超軽量、日本語特化) - 必要なら有効化
+// 現状はKokoroがメインなので未実装、必要なら piper-plus のWASMをロード
+async function speakWithPiper(text) {
+  // 実装例: https://github.com/shiena/piper-plus
+  // import { PiperPlus } from "https://esm.sh/piper-plus"
+  // const piper = await PiperPlus.from_pretrained("ja_JP-test-medium");
+  // await piper.speak(text);
+  throw new Error("Piper not implemented - use Kokoro");
+}
+
 function getAudioExtension(blob) {
   const mime = (blob?.type || "").toLowerCase();
   if (mime.includes("webm")) return "webm";
@@ -1007,12 +1078,11 @@ async function speakWithBackend(text) {
   ];
   for (let i=0;i<urls.length;i++){
     try {
-      console.log(`[TTS] trying ${urls[i].slice(0,100)}`);
+      console.log(`[TTS Edge] trying ${i} ${urls[i].slice(0,120)}`);
       const res = await fetch(urls[i], {method:"GET", cache:"no-store", mode:"cors", credentials:"omit"});
-      console.log(`[TTS] status ${res.status}`);
+      console.log(`[TTS Edge] status ${res.status}`);
       if (!res.ok) {
         const t = await res.text().catch(()=> "");
-        console.warn(`[TTS] ${res.status} ${t.slice(0,200)}`);
         if (res.status===404) continue;
         throw new Error(t);
       }
@@ -1032,7 +1102,7 @@ async function speakWithBackend(text) {
       });
       return;
     } catch(e){
-      console.warn(`[TTS] attempt ${i} failed`, e.message);
+      console.warn(`[TTS Edge] attempt ${i} failed`, e.message);
       if (i===urls.length-1) throw e;
       await new Promise(r=>setTimeout(r, 1000));
     }
@@ -1040,30 +1110,6 @@ async function speakWithBackend(text) {
 }
 
 async function speakWithLocalMMS(text) { throw new Error("disabled"); }
-
-
-async function speakWithLocalMMS(text) {
-  if (!isLocalTTSReady) await loadLocalTTS();
-  if (!localTTSPipeline) throw new Error("local TTS not ready");
-  const chunks = text.match(/.{1,120}(。|、|．|！|？|$)/g) || [text];
-  const AC = window.AudioContext || window.webkitAudioContext;
-  const ctx = new AC();
-  if (ctx.state === "suspended") await ctx.resume();
-  try {
-    for (const ch of chunks) {
-      if (!ch.trim()) continue;
-      const out = await localTTSPipeline(ch);
-      const buf = ctx.createBuffer(1, out.audio.length, out.sampling_rate);
-      buf.getChannelData(0).set(out.audio);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ctx.destination);
-      await new Promise(r => { src.onended = r; src.start(); });
-    }
-  } finally {
-    try { await ctx.close(); } catch {}
-  }
-}
 
 async function speakAI(text, onEnd) {
   if (!text?.trim()) { onEnd?.(); return; }
@@ -1073,23 +1119,37 @@ async function speakAI(text, onEnd) {
   const prev = DOM.statusText?.textContent||"";
   if (DOM.statusText) DOM.statusText.textContent = "AI が話しています...";
   if (DOM.micBtn) { DOM.micBtn.disabled=true; DOM.micBtn.classList.add("opacity-50"); }
+  let lastErr = null;
+  // 1. Edge-TTS (無料API, NanamiNeural) - 最高品質
   try {
     await speakWithBackend(text);
+    lastErr = null;
   } catch(e) {
-    console.warn("[TTS] backend failed, fallback to Web Speech", e.message);
+    console.warn("[TTS] Edge failed, trying Kokoro WASM", e.message);
+    lastErr = e;
+    // 2. Kokoro-82M WASM (無料, 日本語対応, ブラウザ内)
     try {
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "ja-JP";
-      u.rate = 1.0;
-      await new Promise(res=>{ u.onend=res; u.onerror=res; speechSynthesis.speak(u); });
-    } catch(e2){ console.warn("[TTS] webspeech failed", e2); }
+      if (DOM.statusText) DOM.statusText.textContent = "音声を生成中... (WASM)";
+      await speakWithKokoro(text);
+      lastErr = null;
+    } catch(e2) {
+      console.warn("[TTS] Kokoro failed", e2.message);
+      lastErr = e2;
+      // 3. 最終手段: 画面にテキスト表示のみ (Web Speech APIは使わない)
+      if (DOM.statusText) DOM.statusText.textContent = "音声の再生に失敗しました";
+    }
   }
   if (DOM.statusText) DOM.statusText.textContent = prev;
   if (isModelReady && DOM.viewResultBtn?.classList.contains("hidden") && DOM.micBtn) {
     DOM.micBtn.disabled=false; DOM.micBtn.classList.remove("opacity-50");
   }
+  if (lastErr && DOM.statusText) {
+    console.error("[TTS] all failed", lastErr);
+    DOM.statusText.textContent = "音声エラー: タップして続行";
+  }
   safeEnd();
 }
+
 
 
 function initScan() {
