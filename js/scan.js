@@ -1068,9 +1068,42 @@ async function processTurn() {
   }
 }
 
+async function speakWithBackend_POST(text) {
+  // POST版 - 405対策
+  try {
+    const res = await fetch(`${BACKEND_URL}/tts`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({text, voice:"ja-JP-NanamiNeural"}),
+      mode:"cors", credentials:"omit", cache:"no-store"
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    if (!blob.size) throw new Error("empty");
+    const audio = createPlaybackAudio();
+    try { audio.pause(); } catch {}
+    revokePlaybackURL();
+    playbackObjectURL = URL.createObjectURL(blob);
+    audio.src = playbackObjectURL;
+    audio.currentTime = 0;
+    await new Promise((resolve, reject)=>{
+      audio.onended = ()=>{ audio.onended=null; audio.onerror=null; revokePlaybackURL(); resolve(); };
+      audio.onerror = (e)=>{ audio.onended=null; audio.onerror=null; revokePlaybackURL(); reject(e); };
+      const p = audio.play();
+      if (p?.then) p.catch(reject);
+    });
+    return;
+  } catch(e) {
+    console.warn("[TTS POST] failed", e.message);
+    throw e;
+  }
+}
+
 async function speakWithBackend(text) {
   if (!text?.trim()) return;
   await unlockAudioContext();
+  // まずPOSTを試す (405対策)
+  try { await speakWithBackend_POST(text); return; } catch(e){ console.warn("[TTS] POST failed, trying GET"); }
   const urls = [
     `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=ja-JP-NanamiNeural`,
     `${BACKEND_URL}/api/tts?text=${encodeURIComponent(text)}&voice=ja-JP-NanamiNeural`,
