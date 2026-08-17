@@ -51,7 +51,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (modalTitle) modalTitle.textContent = m.title;
     if (modalDesc) modalDesc.textContent = m.detail || m.description;
     if (extraArea) {
-      extraArea.innerHTML = `${m.steps?.length ? `<div><h4 class="text-xs font-bold text-gray-700 mb-2">手順</h4><ol class="list-decimal pl-4 space-y-1 text-[13px] text-gray-600">${m.steps.map(s=>`<li>${s}</li>`).join('')}</ol></div>` : ''}${m.youtubeId ? `<div><h4 class="text-xs font-bold text-gray-700 mb-2">動画で見る</h4><div class="relative w-full aspect-video rounded-xl overflow-hidden bg-black"><iframe src="https://www.youtube-nocookie.com/embed/${m.youtubeId}?rel=0" class="absolute inset-0 w-full h-full" frameborder="0" allowfullscreen loading="lazy"></iframe></div><p class="text-[10px] text-gray-400 mt-1">出典: ${m.sourceName||'YouTube'} • <a href="${m.youtubeUrl}" target="_blank" class="underline">YouTubeで開く</a></p></div>` : ''}<div class="bg-gray-50 rounded-xl p-3 space-y-1">${m.imageCredit ? `<p class="text-[10px] text-gray-400">画像: ${m.imageCredit} • ${m.license}</p>` : ''}${m.sourceName ? `<p class="text-[10px] text-gray-400">出典: ${m.sourceName} ${m.sourceUrl ? `<a href="${m.sourceUrl}" target="_blank" class="underline">リンク</a>` : ''}</p>` : ''}${m.contraindication ? `<p class="text-[11px] text-orange-600 bg-orange-50 p-2 rounded">⚠️ ${m.contraindication}</p>` : ''}</div>`;
+      // stepsが文字列でも配列でも壊れないように正規化
+      const stepsArr = (() => {
+        if (!m.steps) return [];
+        if (Array.isArray(m.steps)) return m.steps;
+        if (typeof m.steps === 'string') {
+          // 改行 or 「1. 」区切り or 、区切り に対応
+          const s = m.steps.trim();
+          if (s.includes('\n')) return s.split('\n').map(x=>x.trim()).filter(Boolean);
+          if (s.includes('。')) return s.split('。').map(x=>x.trim()).filter(Boolean).map(x=>x+'。');
+          return [s];
+        }
+        return [];
+      })();
+      extraArea.innerHTML = `${stepsArr.length ? `<div><h4 class="text-xs font-bold text-gray-700 mb-2">手順</h4><ol class="list-decimal pl-4 space-y-1 text-[13px] text-gray-600">${stepsArr.map(s=>`<li>${s}</li>`).join('')}</ol></div>` : ''}${m.youtubeId ? `<div><h4 class="text-xs font-bold text-gray-700 mb-2">動画で見る</h4><div class="relative w-full aspect-video rounded-xl overflow-hidden bg-black"><iframe src="https://www.youtube-nocookie.com/embed/${m.youtubeId}?rel=0" class="absolute inset-0 w-full h-full" frameborder="0" allowfullscreen loading="lazy"></iframe></div><p class="text-[10px] text-gray-400 mt-1">出典: ${m.sourceName||'YouTube'} • <a href="${m.youtubeUrl}" target="_blank" class="underline">YouTubeで開く</a></p></div>` : ''}<div class="bg-gray-50 rounded-xl p-3 space-y-1">${m.imageCredit ? `<p class="text-[10px] text-gray-400">画像: ${m.imageCredit} • ${m.license}</p>` : ''}${m.sourceName ? `<p class="text-[10px] text-gray-400">出典: ${m.sourceName} ${m.sourceUrl ? `<a href="${m.sourceUrl}" target="_blank" class="underline">リンク</a>` : ''}</p>` : ''}${m.contraindication ? `<p class="text-[11px] text-orange-600 bg-orange-50 p-2 rounded">⚠️ ${m.contraindication}</p>` : ''}</div>`;
     }
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';

@@ -2,8 +2,8 @@
 const RestDB = (() => {
   const GAS_URL = "https://script.google.com/macros/s/AKfycbxkNZwkMCaMlRA7LRw5k9aGr8YJGdYfy_TgiOinWm6is3C8UgoueybU8IFGtENgOaiRTA/exec";
   const LOCAL_JSON_URL = "./data/restDatabase.json";
-  cal = false;
-  let useLocal = true;
+  let useLocal = false;
+
   function getUid() {
     try {
       return window.firebaseAuth?.currentUser?.uid || window.auth?.currentUser?.uid || 'guest';
@@ -55,6 +55,21 @@ const RestDB = (() => {
     return arr.map(t => normalizeType(t)).filter(Boolean);
   }
 
+  function normalizeSteps(input) {
+    if (!input) return [];
+    if (Array.isArray(input)) return input.map(s=>String(s).trim()).filter(Boolean);
+    if (typeof input === 'string') {
+      // 改行、句点、番号付きなどを考慮
+      const t = input.trim();
+      if (!t) return [];
+      if (t.includes('\n')) return t.split('\n').map(s=>s.trim()).filter(Boolean);
+      if (t.includes('。') && t.split('。').length > 2) return t.split('。').map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith('。')?s:s+'。');
+      if (t.includes('|')) return t.split('|').map(s=>s.trim()).filter(Boolean);
+      return [t];
+    }
+    return [];
+  }
+
   function enrich(m) {
     let fTypes = normalizeArray(m.fatigueTypes);
     const cat = normalizeType(m.category);
@@ -68,7 +83,10 @@ const RestDB = (() => {
       youtubeId: m.youtubeId || parseYouTubeId(m.youtubeUrl || ""),
       imageUrl: m.imageUrl || m.image || "",
       timeMin: Number(m.timeMin) || 0,
-      level: m.level || "light"
+      level: m.level || "light",
+      steps: normalizeSteps(m.steps),
+      detail: m.detail || m.description || "",
+      description: m.description || m.detail || ""
     };
   }
 
