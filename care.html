@@ -8,6 +8,16 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css">
+<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"
+  }
+}
+</script>
 </head>
 <body data-page="care">
     <div class="phone-bezel">
@@ -21,7 +31,7 @@
                 <span class="material-icons-outlined text-gray-400 mr-2">search</span>
                 <input id="care-search" type="text" placeholder="あなたに合ったケアを検索" class="bg-transparent border-none outline-none text-sm text-gray-700 w-full placeholder-gray-400 font-bold">
             </div>
-            <h2 class="text-base font-bold text-gray-800 mb-4 tracking-wider">Rimiさんへのおすすめ</h2>
+            <h2 class="text-base font-bold text-gray-800 mb-4 tracking-wider">ゲストさんへのおすすめ</h2>
             <div id="care-list" class="flex flex-col gap-6 pb-24 w-full shrink-0">
                 <!-- JSでDBから自動生成 -->
                 <p class="text-sm text-gray-400">データベースから読み込み中...</p>
@@ -61,8 +71,17 @@
             </div>
         </div></div>
     </div>
-    <script src="js/app.js"></script>
+    
     <script src="js/restDB.js"></script>
     <script src="js/care.js"></script>
+
+<script type="module">
+  import { initAuth } from "./js/auth.js";
+  // ゲストでもエラーにならない共通初期化
+  initAuth((user) => {
+    console.log("[auth]", user ? user.uid : "guest");
+  });
+</script>
+
 </body>
 </html>

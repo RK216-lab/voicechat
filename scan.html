@@ -8,6 +8,16 @@
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"
+  }
+}
+</script>
 </head>
 <body data-page="scan">
   <div class="phone-bezel">
@@ -61,89 +71,118 @@
         </button>
       </div>
     </div>
+    <!-- RESULT - コンパクトかつ見やすい、落ち着いたトーンの省スペースUI -->
+<div id="resultScreen" class="hidden flex-1 flex flex-col overflow-y-auto bg-[#FAF8F5] min-h-0 z-10 pb-20 hide-scrollbar">
+  <div class="p-4 space-y-4 max-w-md mx-auto w-full entering">
+    
+    <!-- ヘッダー（余白を詰め、ボタンを小さく） -->
+    <div class="flex justify-between items-center py-0.5">
+      <a href="home.html" class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-slate-500 shadow-sm border border-slate-200/80 active:scale-95 transition">
+        <span class="material-icons" style="font-size:18px">chevron_left</span>
+      </a>
+      <h2 class="font-bold text-slate-700 text-sm tracking-wide">診断結果</h2>
+      <div class="w-8"></div>
+    </div>
 
-    <!-- RESULT -->
-    <div id="resultScreen" class="hidden flex-1 flex flex-col p-5 overflow-y-auto space-y-4 bg-[#FDF3EE]/80 backdrop-blur min-h-0 z-10 pb-[110px]">
-      <div class="text-center pt-1 shrink-0 flex justify-between items-center">
-        <a href="home.html" class="w-9 h-9 rounded-full bg-white/70 flex items-center justify-center text-slate-500 shadow-sm">
-          <span class="material-icons" style="font-size:20px">chevron_left</span>
-        </a>
-        <h2 class="text-slate-700 font-bold text-base">診断結果</h2>
-        <div class="w-9"></div>
-      </div>
-
-      <div class="bg-white rounded-3xl p-5 shadow-sm border border-orange-100/60 text-center space-y-1.5 slide-up">
-        <p class="text-[10px] font-bold text-slate-400 tracking-widest">推定元気度</p>
-        <div class="flex justify-center items-baseline gap-0.5">
-          <span id="scoreTotalVal" class="text-5xl font-black text-emerald-500">--</span>
-          <span class="text-base font-bold text-slate-400">/100</span>
-        </div>
-        <p id="scoreHint" class="text-[10px] text-slate-400"></p>
-      </div>
-
-      <!-- コンディション解析 -->
-      <div class="space-y-3 slide-up" style="animation-delay:0.06s">
-        <h3 class="text-xs font-extrabold text-slate-500 uppercase tracking-wider px-1">コンディション解析</h3>
-        <div class="bg-white/95 rounded-3xl p-5 shadow-md border border-slate-100/80 space-y-4">
-          
-          <!-- 脳の疲れ (高リスク：赤系) -->
-          <div class="space-y-1.5">
-            <div class="flex justify-between items-center">
-              <span class="flex items-center gap-2 text-sm font-bold text-slate-700">
-                <span class="material-icons-outlined text-lg text-rose-500">psychology</span>脳の疲れ
-              </span>
-              <span id="scoreBrainVal" class="font-black text-lg text-rose-500">--%</span>
-            </div>
-            <div class="score-bar"><i id="barBrain" class="bg-rose-500" style="width:0%"></i></div>
-          </div>
-
-          <!-- 精神の疲れ (中～高リスク：オレンジ系) -->
-          <div class="space-y-1.5">
-            <div class="flex justify-between items-center">
-              <span class="flex items-center gap-2 text-sm font-bold text-slate-700">
-                <span class="material-icons-outlined text-lg text-amber-500">spa</span>精神の疲れ
-              </span>
-              <span id="scoreMentalVal" class="font-black text-lg text-amber-500">--%</span>
-            </div>
-            <div class="score-bar"><i id="barMental" class="bg-amber-500" style="width:0%"></i></div>
-          </div>
-
-          <!-- 身体の疲れ (低リスク：緑系) -->
-          <div class="space-y-1.5">
-            <div class="flex justify-between items-center">
-              <span class="flex items-center gap-2 text-sm font-bold text-slate-700">
-                <span class="material-icons-outlined text-lg text-emerald-500">directions_run</span>身体の疲れ
-              </span>
-              <span id="scorePhysicalVal" class="font-black text-lg text-emerald-500">--%</span>
-            </div>
-            <div class="score-bar"><i id="barPhysical" class="bg-emerald-400" style="width:0%"></i></div>
-          </div>
-
+    <!-- ① メインスコア（半円ゲージを拡大し、視認性を向上） -->
+    <div class="bg-white rounded-2xl p-4 text-center shadow-sm border border-slate-200/80">
+      <span class="text-[11px] font-bold tracking-wider text-slate-400 uppercase inline-block mb-1.5">Today's Condition</span>
+      
+      <!-- 半円ゲージ（サイズアップ w-40 h-20 -> w-48 h-24、stroke-width調整） -->
+      <div class="relative w-48 h-24 mx-auto flex items-end justify-center my-1.5">
+        <svg class="w-48 h-24 overflow-visible" viewBox="0 0 100 50">
+          <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#f1f5f9" stroke-width="10" stroke-linecap="round"/>
+          <path id="gaugePath" d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#10b981" stroke-width="10" stroke-linecap="round" stroke-dasharray="125.6" stroke-dashoffset="40"/>
+        </svg>
+        <div class="absolute bottom-1 text-center leading-none">
+          <span id="scoreTotalVal" class="text-4xl font-extrabold text-slate-800 tracking-tight">68</span>
+          <span class="text-[13px] font-bold text-slate-400">/100</span>
         </div>
       </div>
 
-      <!-- 疲れの原因・解説 -->
-      <div class="slide-up" style="animation-delay:0.12s">
-        <div class="bg-white/95 rounded-3xl p-5 shadow-md border border-orange-100 space-y-2">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-orange-400"></span>
-            <h4 id="fatigueTitle" class="text-base font-black text-slate-800">--</h4>
+      <p id="scoreHint" class="mt-2 text-[13px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/50 inline-block px-3.5 py-1 rounded-full">
+        まずまずの調子です
+      </p>
+    </div>
+
+    <!-- ② コンディション解析（横並び円グラフを拡大、文字サイズ調整） -->
+    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3.5">
+      <div class="flex items-center justify-between">
+        <h3 class="text-[13px] font-bold text-slate-600">コンディション解析</h3>
+        <span class="text-[11px] text-slate-400">高数値＝疲労感強</span>
+      </div>
+      
+      <div class="grid grid-cols-3 gap-3 text-center">
+        <!-- 脳の疲れ -->
+        <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center border border-slate-100">
+          <div class="flex items-center gap-1.5 mb-2.5">
+            <span class="material-icons-outlined text-base text-rose-500">psychology</span>
+            <span class="text-[12px] font-bold text-slate-600">脳</span>
           </div>
-          <p id="fatigueDetailText" class="text-sm leading-relaxed text-slate-600 font-medium pl-4">--</p>
+          <!-- 円グラフを拡大 48px -> 60px -->
+          <div class="relative w-[60px] h-[60px] flex items-center justify-center">
+            <div id="circleBrain" class="mini-score-circle" style="--p:79; --c:#f43f5e;">
+              <span id="scoreBrainVal" class="text-[13px] font-extrabold text-slate-700">79%</span>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div class="space-y-2 slide-up" style="animation-delay:0.18s">
-        <h3 class="text-[11px] font-bold text-slate-600 px-1">今のあなたにおすすめの休息</h3>
-        <div id="recoveryList" class="space-y-2"></div>
-      </div>
+        <!-- 精神の疲れ -->
+        <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center border border-slate-100">
+          <div class="flex items-center gap-1.5 mb-2.5">
+            <span class="material-icons-outlined text-base text-amber-500">spa</span>
+            <span class="text-[12px] font-bold text-slate-600">精神</span>
+          </div>
+          <div class="relative w-[60px] h-[60px] flex items-center justify-center">
+            <div id="circleMental" class="mini-score-circle" style="--p:85; --c:#f59e0b;">
+              <span id="scoreMentalVal" class="text-[13px] font-extrabold text-slate-700">85%</span>
+            </div>
+          </div>
+        </div>
 
-      <div class="pt-2 pb-2 flex gap-2">
-        <a href="home.html" class="flex-1 py-3.5 bg-white border border-slate-200 text-slate-600 font-bold rounded-2xl shadow-sm text-center">ホームに戻る</a>
-        <a href="care.html" class="flex-1 py-3.5 bg-green-500 text-white font-bold rounded-2xl shadow-md text-center">ケアを見る</a>
+        <!-- 身体の疲れ -->
+        <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center border border-slate-100">
+          <div class="flex items-center gap-1.5 mb-2.5">
+            <span class="material-icons-outlined text-base text-emerald-500">directions_run</span>
+            <span class="text-[12px] font-bold text-slate-600">身体</span>
+          </div>
+          <div class="relative w-[60px] h-[60px] flex items-center justify-center">
+            <div id="circlePhysical" class="mini-score-circle" style="--p:49; --c:#10b981;">
+              <span id="scorePhysicalVal" class="text-[13px] font-extrabold text-slate-700">49%</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
+    <!-- ③ AIアドバイス（文字サイズ調整） -->
+    <div class="bg-amber-50/60 rounded-2xl p-4 shadow-sm border border-amber-200/60 space-y-1">
+      <div class="flex items-center gap-1.5 text-amber-800">
+        <span class="material-icons-outlined text-base">auto_awesome</span>
+        <h4 id="fatigueTitle" class="text-[13px] font-bold">AIアドバイス</h4>
+      </div>
+      <p id="fatigueDetailText" class="text-[13px] leading-relaxed text-slate-600 font-normal">
+        画面を見続ける時間が長く、情報の整理にエネルギーを使っているようです。少しだけ目を休める時間を取ってみてください。
+      </p>
+    </div>
+
+    <!-- ④ おすすめケア（リストコンテナの間隔をgapで管理） -->
+    <div class="space-y-2.5">
+      <h3 class="text-[13px] font-bold text-slate-600 px-1">おすすめのケア</h3>
+      <!-- カード間の間隔（gap）をCSSで統一するため、包含コンテナに設定 -->
+      <div id="recoveryList" class="flex flex-col gap-2.5 relative z-20">
+        <!-- ここにJSでカード（.care-card）が追加される -->
+      </div>
+    </div>
+
+    <!-- アクションボタン（余白詰め） -->
+    <div class="pt-1 flex gap-3">
+      <a href="home.html" class="flex-1 py-3.5 bg-white border border-slate-200/80 text-slate-600 font-bold rounded-xl text-center text-xs active:scale-95 transition shadow-xs">ホーム</a>
+      <a href="care.html" class="flex-1 py-3.5 bg-slate-800 text-white font-bold rounded-xl text-center text-xs active:scale-95 transition shadow-xs">ケア一覧を見る</a>
+    </div>
+
+  </div>
+</div>
     <nav class="global-nav">
       <a href="home.html" class="flex flex-col items-center transition text-gray-400 hover:text-green-500"><span class="material-icons-outlined text-3xl">home</span><span class="text-xs mt-1">ホーム</span></a>
       <a href="learn.html" class="flex flex-col items-center transition text-gray-400 hover:text-green-500"><span class="material-icons-outlined text-3xl">import_contacts</span><span class="text-xs mt-1">知る</span></a>
@@ -186,8 +225,17 @@
 
   <!-- スクリプト群 -->
   <script src="js/script.js"></script>
-  <script src="js/app.js"></script>
+  
   <script src="js/restDB.js"></script>
   <script src="js/scan.js"></script>
+
+<script type="module">
+  import { initAuth } from "./js/auth.js";
+  // ゲストでもエラーにならない共通初期化
+  initAuth((user) => {
+    console.log("[auth]", user ? user.uid : "guest");
+  });
+</script>
+
 </body>
 </html>

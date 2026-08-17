@@ -1,0 +1,7 @@
+{
+  "name": "restee",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/inject-env.js"
+  }
+}

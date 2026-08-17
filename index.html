@@ -6,6 +6,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Restee</title>
 <link rel="stylesheet" href="style.css">
+<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"
+  }
+}
+</script>
 </head>
 <body>
 <div class="phone-bezel flex items-center justify-center">
@@ -13,5 +23,14 @@
 <p class="relative z-10 font-bold text-gray-600">読み込み中...</p>
 </div>
 <script>location.href='home.html';</script>
+
+<script type="module">
+  import { initAuth } from "./js/auth.js";
+  // ゲストでもエラーにならない共通初期化
+  initAuth((user) => {
+    console.log("[auth]", user ? user.uid : "guest");
+  });
+</script>
+
 </body>
 </html>

@@ -4,7 +4,12 @@
  * - ホーム、ケア、プロフィールへのデータ反映
  * - ナビゲーションのアクティブ制御
  */
-
+// app.js の最初に
+import { initAuth } from './auth.js';
+initAuth((user) => {
+  // ログインしててもしてなくてもアプリ起動
+  startApp(user);
+});
 const STORAGE_KEYS = {
   LAST_SCAN: 'restee_last_scan',
   HISTORY: 'restee_history',

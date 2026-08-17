@@ -689,15 +689,31 @@ function titleFromScores(scores) {
   return "総合的な疲れ";
 }
 
+
+// scan.js の applyScoreUI をこのAfter版に置き換えてください
 function applyScoreUI(scores) {
   const totalEl = document.getElementById("scoreTotalVal");
   if (totalEl) totalEl.textContent = scores.total;
+
+  // ヒーロー円形グラデーションを更新
+  const ring = document.getElementById("heroScoreRing");
+  if (ring) {
+    ring.style.setProperty('--p', scores.total);
+    const color = scores.total >= 70 ? '#10b981' : scores.total >= 50 ? '#f59e0b' : '#f43f5e';
+    ring.style.setProperty('--c', color);
+  }
+
   const hintEl = document.getElementById("scoreHint");
-  if (hintEl) hintEl.textContent = scores.total >= 70 ? "比較的コンディションは良好です" : scores.total >= 50 ? "無理をせず、ペースを落として大丈夫です" : "休息を優先してあげてください";
+  if (hintEl) {
+    const msg = scores.total >= 80 ? '絶好調！この調子をキープ' : scores.total >= 60 ? 'まずまずの調子です' : scores.total >= 40 ? '少しお疲れ気味です' : '今日はゆっくり休みましょう';
+    hintEl.textContent = msg;
+  }
+
   const b = document.getElementById("scoreBrainVal"), m = document.getElementById("scoreMentalVal"), p = document.getElementById("scorePhysicalVal");
-  if (b) b.innerHTML = `${scores.brain}<span class="text-xs font-normal">%</span>`;
-  if (m) m.innerHTML = `${scores.mental}<span class="text-xs font-normal">%</span>`;
-  if (p) p.innerHTML = `${scores.physical}<span class="text-xs font-normal">%</span>`;
+  if (b) b.innerHTML = `${scores.brain}<span class="text-[11px] font-bold ml-0.5">%</span>`;
+  if (m) m.innerHTML = `${scores.mental}<span class="text-[11px] font-bold ml-0.5">%</span>`;
+  if (p) p.innerHTML = `${scores.physical}<span class="text-[11px] font-bold ml-0.5">%</span>`;
+
   requestAnimationFrame(() => {
     const bb = document.getElementById("barBrain"), mb = document.getElementById("barMental"), pb = document.getElementById("barPhysical");
     if (bb) bb.style.width = scores.brain + "%";
@@ -705,6 +721,7 @@ function applyScoreUI(scores) {
     if (pb) pb.style.width = scores.physical + "%";
   });
 }
+
 
 function startLoadCopyRotation() {
   let i = 0;

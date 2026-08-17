@@ -313,3 +313,164 @@ body {
   flex-shrink: 0;
   margin-left: 4px;
 }
+
+/* ===== After提案 追加CSS ===== */
+/* ヒーロースコア 円形グラデーション */
+.hero-score-ring {
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(var(--c, #10b981) calc(var(--p, 68) * 1%), #e2e8f0 0);
+  position: relative;
+  box-shadow: 0 8px 20px rgba(16,185,129,0.18);
+}
+.hero-score-ring::before {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.04);
+}
+.hero-score-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+/* コンディションバー 12px固定 */
+.score-bar.h-3 {
+  height: 12px !important;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+.score-bar.h-3 > i {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.9s cubic-bezier(0.22,1,0.36,1);
+}
+
+/* action-card 改善: gap-3 + hover */
+#recoveryList {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.action-card {
+  gap: 14px;
+  padding: 14px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid rgba(226,232,240,0.8);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  cursor: pointer;
+}
+.action-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+.action-card:active {
+  transform: scale(0.98);
+}
+.action-thumb-container { width: 76px; height: 76px; border-radius: 14px; flex-shrink: 0; }
+.action-title { font-size: 14px; font-weight: 800; line-height: 1.3; color: #1e293b; }
+.action-desc { font-size: 12px; color: #64748b; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.action-chevron { color: #cbd5e1; font-size: 20px; }
+
+/* resultScreen全体の余白改善 */
+#resultScreen .slide-up { animation-delay: 0.05s; }
+/* ===== 結果画面（#resultScreen）強化CSS ===== */
+.hero-score-ring {
+  width: 156px;
+  height: 156px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(var(--c, #10b981) calc(var(--p, 68) * 1%), #f1f5f9 0);
+  position: relative;
+  box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.22);
+  transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.hero-score-ring::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.hero-score-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+}
+
+.score-bar {
+  background: #f1f5f9;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.score-bar > i {
+  transition: width 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* ===== 省スペース・落ち着いたトーン用スタイル ===== */
+
+/* ===== 洗練されたコンパクトUI用スタイル ===== */
+
+/* ドーナツグラフのサイズ拡大 48px -> 60px、stroke-width調整 */
+.mini-score-circle {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(var(--c, #10b981) calc(var(--p, 0) * 1%), #e2e8f0 0);
+  position: relative;
+}
+
+.mini-score-circle::before {
+  content: "";
+  position: absolute;
+  inset: 6px; /* stroke-widthに合わせ調整 */
+  background: #ffffff;
+  border-radius: 50%;
+}
+
+.mini-score-circle > span {
+  position: relative;
+  z-index: 1;
+}
+
+/* おすすめケアカードのパディングと枠線を厳密に統一（包含コンテナのgapで間隔管理） */
+#recoveryList > .care-card {
+  background-color: #ffffff;
+  border-radius: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* 画像とテキストの間隔 */
+  margin: 0 !important; /* JSによるマージン付与をリセット */
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+#recoveryList > .care-card:active {
+  transform: scale(0.98);
+}

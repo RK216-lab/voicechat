@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ログイン - Restee</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="style.css">
+<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"
+  }
+}
+</script>
+</head>
+<body data-page="login">
+<div class="phone-bezel">
+<div class="wave-bg"></div><div class="wave-bg-2"></div>
+<header class="p-6 pt-8 relative z-10"><a href="profile.html" class="flex items-center text-gray-500"><span class="material-icons-outlined">chevron_left</span> 戻る</a></header>
+<main class="scrollable-content px-6 flex flex-col items-center pt-10 relative z-10">
+  <div class="wavy-card w-full p-8 text-center">
+    <h1 class="text-xl font-bold text-gray-800 mb-2">Resteeにログイン</h1>
+    <p class="text-sm text-gray-500 mb-6">ログインすると、スキャン履歴やお気に入りが<br>どの端末でも見られるようになります。<br>ログインしなくてもアプリは使えます。</p>
+    <button id="btn-google-login" class="w-full py-4 bg-slate-800 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5 bg-white rounded-full p-0.5"> Googleでログイン
+    </button>
+    <a href="home.html" class="block mt-6 text-sm text-gray-400 underline">ゲストのまま使う</a>
+    <p id="login-error" class="text-xs text-red-500 mt-4 hidden"></p>
+  </div>
+</main>
+</div>
+<script type="module">
+import { login, initAuth } from "./js/auth.js";
+const btn = document.getElementById('btn-google-login');
+const err = document.getElementById('login-error');
+initAuth((user)=>{ if(user) location.href='profile.html'; });
+btn.onclick = async () => {
+  btn.disabled = true;
+  btn.textContent = 'ログイン中...';
+  try { await login(); location.href='profile.html'; } 
+  catch(e) { err.textContent = e.message; err.classList.remove('hidden'); btn.disabled=false; btn.innerHTML='<img src=\"https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg\" class=\"w-5 h-5 bg-white rounded-full p-0.5\"> Googleでログイン'; }
+};
+</script>
+</body>
+</html>

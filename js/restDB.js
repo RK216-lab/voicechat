@@ -1,8 +1,20 @@
-// js/restDB.js v3.1 - 脳疲労マッチ修正版 + 日本語対応 + デバッグ
+// js/restDB.js v3.2 - ログイン任意対応 + キャッシュユーザー別
 const RestDB = (() => {
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbwwwW0xmxd60FLG1a7Nijc0DsF9CfpBEe3YtQD19-C10xC7_RrURocUeuA1yJEsDX-50g/exec";
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbxkNZwkMCaMlRA7LRw5k9aGr8YJGdYfy_TgiOinWm6is3C8UgoueybU8IFGtENgOaiRTA/exec";
   const LOCAL_JSON_URL = "./data/restDatabase.json";
-  let useLocal = false;
+  cal = false;
+  let useLocal = true;
+  function getUid() {
+    try {
+      return window.firebaseAuth?.currentUser?.uid || window.auth?.currentUser?.uid || 'guest';
+    } catch { return 'guest'; }
+  }
+  function getCacheKey() {
+    return `restee_rest_cache_v3_${getUid()}`;
+  }
+  function getHistoryKey() {
+    return `restee_history_${getUid()}`;
+  }
 
   function parseYouTubeId(urlOrId) {
     if (!urlOrId) return "";
@@ -74,13 +86,13 @@ const RestDB = (() => {
           methods = methods.filter(m => m.fatigueTypes.includes(nType) || m.category === nType);
         }
       }
-      try { localStorage.setItem("restee_rest_cache_v3", JSON.stringify({ t: Date.now(), methods })); } catch {}
-      console.log(`[RestDB] loaded ${methods.length} methods`, methods.slice(0,2));
+      try { localStorage.setItem(getCacheKey(), JSON.stringify({ t: Date.now(), methods })); } catch {}
+      console.log(`[RestDB] loaded ${methods.length} methods as ${getUid()}`, methods.slice(0,2));
       return methods;
     } catch (e) {
       console.warn("[RestDB] fetch failed, fallback", e);
       try {
-        const saved = JSON.parse(localStorage.getItem("restee_rest_cache_v3") || "null");
+        const saved = JSON.parse(localStorage.getItem(getCacheKey()) || "null");
         if (saved?.methods?.length) return saved.methods.map(enrich);
       } catch {}
       if (!useLocal) { useLocal = true; return load({ type, tag, level, q }); }
@@ -95,8 +107,6 @@ const RestDB = (() => {
       ["brain", scores.brain || 0],
       ["mental", scores.mental || 0]
     ].sort((a,b)=>b[1]-a[1]);
-
-    console.log("[RestDB] scores", scores, "sorted", entries);
 
     const topKey = entries[0][0];
     const topType = map[topKey];
@@ -133,5 +143,27 @@ const RestDB = (() => {
     return result;
   }
 
-  return { load, pickForResult, parseYouTubeId, _setUseLocal: v=>useLocal=v, _normalize: normalizeType };
+  // ★追加: 診断結果保存（ゲストでも動く）
+  async function saveResult(scores, pickedMethods) {
+    const payload = {
+      uid: getUid(),
+      scores,
+      methods: pickedMethods.map(m => m.id),
+      createdAt: new Date().toISOString()
+    };
+    const key = getHistoryKey();
+    try {
+      const history = JSON.parse(localStorage.getItem(key) || "[]");
+      history.unshift(payload);
+      localStorage.setItem(key, JSON.stringify(history.slice(0,20)));
+    } catch(e){ console.warn(e); }
+
+    if (getUid() !== 'guest') {
+      try {
+        await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveResult', ...payload }) });
+      } catch(e){ console.warn('cloud save failed', e); }
+    }
+  }
+
+  return { load, pickForResult, saveResult, parseYouTubeId, _setUseLocal: v=>useLocal=v, _normalize: normalizeType, _getUid: getUid };
 })();
