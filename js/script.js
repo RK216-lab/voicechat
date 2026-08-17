@@ -1,18 +1,48 @@
 /* Restee 共通スクリプト - モーダル & ケアカード */
-function openModal(title, tag, colorClass, image, desc) {
+function openModal(titleOrObj, tag, colorClass, image, desc) {
     const modal = document.getElementById('care-modal');
     if (!modal) return;
+
+    let titleText, tagText, color, imageSrc, descText;
+
+    // 第一引数がオブジェクト（ケアデータ m）の場合の処理
+    if (typeof titleOrObj === 'object' && titleOrObj !== null) {
+        const m = titleOrObj;
+        titleText = m.title || '';
+        const rawTag = m.tags?.[0] || m.category || 'ケア';
+        tagText = `# ${rawTag}`;
+        
+        // カテゴリ等からカラーを判定
+        color = 'bg-blue-600';
+        if (m.category === 'body' || rawTag.includes('食事')) color = 'bg-orange-600';
+        else if (rawTag.includes('睡眠')) color = 'bg-blue-600';
+        else if (rawTag.includes('マインドフルネス') || m.category === 'mind') color = 'bg-purple-600';
+        else if (rawTag.includes('運動') || rawTag.includes('ストレッチ')) color = 'bg-emerald-600';
+
+        imageSrc = m.imageUrl || (m.youtubeId ? `https://img.youtube.com/vi/${m.youtubeId}/hqdefault.jpg` : '');
+        descText = m.detail || m.description || "このケアを実践して、心身をリセットしましょう。";
+    } else {
+        // 従来通りの引数渡しの処理
+        titleText = titleOrObj;
+        tagText = tag;
+        color = colorClass;
+        imageSrc = image;
+        descText = desc || "このケアを実践して、心身をリセットしましょう。ゆったりとした呼吸を意識するのがコツです。";
+    }
+
     const titleEl = document.getElementById('modal-title');
     const tagEl = document.getElementById('modal-tag');
     const imageEl = document.getElementById('modal-image');
     const descEl = document.getElementById('modal-description');
-    if (titleEl) titleEl.innerText = title;
+
+    if (titleEl) titleEl.innerText = titleText;
     if (tagEl) {
-        tagEl.innerText = tag;
-        tagEl.className = `inline-block px-2.5 py-1 rounded-md text-[10px] font-bold text-white mb-2 shadow-sm ${colorClass}`;
+        tagEl.innerText = tagText;
+        tagEl.className = `inline-block px-2.5 py-1 rounded-md text-[10px] font-bold text-white mb-2 shadow-sm ${color}`;
     }
-    if (imageEl) imageEl.src = image;
-    if (descEl) descEl.innerText = desc || "このケアを実践して、心身をリセットしましょう。ゆったりとした呼吸を意識するのがコツです。";
+    if (imageEl) imageEl.src = imageSrc;
+    if (descEl) descEl.innerText = descText;
+
     modal.classList.add('active');
     resetStars();
 }

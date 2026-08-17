@@ -1,18 +1,65 @@
 // js/scan_patch_db.js
-async function renderRecoveryFromDB(scores){
-  const listEl=document.getElementById('recoveryList'); if(!listEl) return;
-  listEl.innerHTML='<p class="text-[11px] text-slate-400">あなたに合うケアを探しています...</p>';
-  let methods=[]; try{ methods=await RestDB.load({type:"all"});}catch(e){ const {suggestions}=pickRecovery(scores); return renderRecovery(suggestions); }
-  const picks=RestDB.pickForResult(scores, methods);
-  listEl.innerHTML='';
-  picks.forEach((m,i)=>{
-    const card=document.createElement('div');
-    card.className='bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden slide-up cursor-pointer';
-    card.style.animationDelay=`${0.05*i}s`;
-    card.innerHTML=`<div class="flex gap-3 p-3"><div class="w-20 h-20 rounded-xl overflow-hidden shrink-0 relative bg-slate-100"><img src="${m.youtubeId ? `https://img.youtube.com/vi/${m.youtubeId}/mqdefault.jpg` : m.imageUrl}" class="w-full h-full object-cover" loading="lazy">${m.youtubeId ? '<div class="absolute inset-0 flex items-center justify-center"><div class="w-6 h-6 bg-white/90 rounded-full flex items-center justify-center"><span class="material-icons-outlined text-[14px] text-red-600 ml-[1px]">play_arrow</span></div></div>' : ''}</div><div class="flex-1 min-w-0"><div class="flex items-center gap-1.5 mb-1"><span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold ${m.category==='body'?'bg-orange-100 text-orange-600':m.category==='brain'?'bg-blue-100 text-blue-600':'bg-purple-100 text-purple-600'}">${m.category}</span><span class="text-[9px] text-slate-400">${m.timeMin}分</span></div><p class="text-[12px] font-bold text-slate-700 leading-tight">${m.title}</p><p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">${m.description}</p></div><span class="material-icons-outlined text-slate-300 text-[18px] self-center">chevron_right</span></div>`;
-    card.addEventListener('click',()=>expandInlineDetail(card,m));
+// js/scan_patch_db.js (または js/scan.js) の renderRecoveryFromDB 関数を差し替え
+
+async function renderRecoveryFromDB(scores) {
+  const listEl = DOM.recoveryList || document.getElementById("recoveryList");
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="text- text-slate-400 px-1 py-2">あなたに合うケアをデータベースから探しています...</p>';
+  let methods = [];
+  try {
+    methods = await RestDB.load({ type: "all" });
+    if (!methods.length) throw new Error("empty");
+  } catch (e) {
+    console.warn("[DB] load failed, fallback to RECOVERY", e);
+    const { suggestions } = pickRecovery(scores);
+    renderRecovery(suggestions);
+    return;
+  }
+  const picks = RestDB.pickForResult(scores, methods);
+  listEl.innerHTML = "";
+  // クリックを潰さないための保険
+  listEl.style.position = "relative";
+  listEl.style.zIndex = "20";
+
+  picks.forEach((m, i) => {
+    const thumb = m.youtubeId? `https://img.youtube.com/vi/${m.youtubeId}/hqdefault.jpg` : m.imageUrl;
+    const card = document.createElement("div");
+    // スクショと同じ action-card に変更
+    card.className = "action-card slide-up";
+    card.style.animationDelay = `${0.05 * i}s`;
+    card.style.pointerEvents = "auto";
+
+    card.innerHTML = `
+      <div class="action-thumb-container">
+        <img src="${thumb || ''}" alt="${m.title}" class="action-thumb" loading="lazy" onerror="this.style.display='none'">
+        ${m.youtubeId? '<div class="play-overlay"><div class="play-icon-bg"><span class="material-icons-outlined text- text-red-600">play_arrow</span></div></div>' : ''}
+      </div>
+      <div class="action-info">
+        <div class="flex items-center gap-1.5 mb-1">
+          <span class="text- px-1.5 py-0.5 rounded-full font-bold ${m.category==='body'?'bg-orange-100 text-orange-600':m.category==='brain'?'bg-blue-100 text-blue-600':'bg-purple-100 text-purple-600'}">${m.category==='body'?'身体':m.category==='brain'?'脳':'精神'}</span>
+          <span class="text- text-slate-400">${m.timeMin}分</span>
+        </div>
+        <p class="action-title">${m.title}</p>
+        <p class="action-desc">${m.description||''}</p>
+      </div>
+      <span class="material-icons-outlined action-chevron">chevron_right</span>
+    `;
+
+    const handler = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openCareModal(m);
+    };
+    card.addEventListener("click", handler);
+    card.addEventListener("touchend", handler, {passive:false});
     listEl.appendChild(card);
   });
+
+  const more = document.createElement("a");
+  more.href = "care.html";
+  more.className = "block text-center text- text-green-600 font-bold mt-3 underline relative z-20";
+  more.textContent = "もっとケアを見る →";
+  listEl.appendChild(more);
 }
 function expandInlineDetail(anchorEl,m){
   const ex=anchorEl.nextElementSibling; if(ex && ex.classList.contains('inline-detail')){ ex.remove(); return; }

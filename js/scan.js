@@ -151,7 +151,7 @@ const SYSTEM_BASE = `あなたはユーザーの疲れに寄り添う、自然�
 
 function buildTurnSystem(phase, openingText) {
   if (phase === "followup") return `${SYSTEM_BASE}\n今は 2 回目。最初は「${openingText}」①受け止め②違う角度で 1 つだけ深掘り質問。同じ聞き直し禁止。`;
-  return `${SYSTEM_BASE}\n最後の発話。これまでを 1 文で受け止めた後、「話してくれてありがとう」で終える。質問禁止。40 文字以内。`;
+  return `${SYSTEM_BASE}\n最後の発話。これまでを 1 文でまとめて共感した後、話し手に感謝を伝えて終える。質問禁止。40 文字以内。`;
 }
 
 const FATIGUE_DEFS = {
@@ -543,10 +543,11 @@ function renderRecovery(sugs) {
 }
 
 // 新: DBから画像+YouTube付きで描画
+// 新: DBから画像+YouTube付きで描画
 async function renderRecoveryFromDB(scores) {
   const listEl = DOM.recoveryList || document.getElementById("recoveryList");
   if (!listEl) return;
-  listEl.innerHTML = '<p class="text-[11px] text-slate-400 px-1 py-2">あなたに合うケアをデータベースから探しています...</p>';
+  listEl.innerHTML = '<p class="text- text-slate-400 px-1 py-2">あなたに合うケアをデータベースから探しています...</p>';
   let methods = [];
   try {
     methods = await RestDB.load({ type: "all" });
@@ -559,37 +560,102 @@ async function renderRecoveryFromDB(scores) {
   }
   const picks = RestDB.pickForResult(scores, methods);
   listEl.innerHTML = "";
+  // クリックを潰さないための保険
+  listEl.style.position = "relative";
+  listEl.style.zIndex = "20";
+
   picks.forEach((m, i) => {
-    const thumb = m.youtubeId ? `https://img.youtube.com/vi/${m.youtubeId}/mqdefault.jpg` : m.imageUrl;
+    const thumb = m.youtubeId? `https://img.youtube.com/vi/${m.youtubeId}/hqdefault.jpg` : m.imageUrl;
     const card = document.createElement("div");
-    card.className = "bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden slide-up cursor-pointer hover:shadow-md transition";
+    // スクショと同じ action-card に変更
+    card.className = "action-card slide-up";
     card.style.animationDelay = `${0.05 * i}s`;
+    card.style.pointerEvents = "auto";
+
     card.innerHTML = `
-      <div class="flex gap-3 p-3">
-        <div class="w-20 h-20 rounded-xl overflow-hidden shrink-0 relative bg-slate-100">
-          <img src="${thumb || ''}" alt="${m.title}" class="w-full h-full object-cover" loading="lazy" referrerpolicy="no-referrer">
-          ${m.youtubeId ? '<div class="absolute inset-0 flex items-center justify-center"><div class="w-6 h-6 bg-white/90 rounded-full flex items-center justify-center shadow"><span class="material-icons-outlined text-[14px] text-red-600 ml-[1px]">play_arrow</span></div></div>' : ''}
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold ${m.category==='body'?'bg-orange-100 text-orange-600':m.category==='brain'?'bg-blue-100 text-blue-600':'bg-purple-100 text-purple-600'}">${m.category==='body'?'身体':m.category==='brain'?'脳':'精神'}</span>
-            <span class="text-[9px] text-slate-400">${m.timeMin}分 • ${m.level==='light'?'軽め':m.level==='medium'?'普通':'しっかり'}</span>
-          </div>
-          <p class="text-[12px] font-bold text-slate-700 leading-tight line-clamp-2">${m.title}</p>
-          <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">${m.description||''}</p>
-        </div>
-        <span class="material-icons-outlined text-slate-300 text-[18px] self-center">chevron_right</span>
+      <div class="action-thumb-container">
+        <img src="${thumb || ''}" alt="${m.title}" class="action-thumb" loading="lazy" onerror="this.style.display='none'">
+        ${m.youtubeId? '<div class="play-overlay"><div class="play-icon-bg"><span class="material-icons-outlined text- text-red-600">play_arrow</span></div></div>' : ''}
       </div>
+      <div class="action-info">
+        <div class="flex items-center gap-1.5 mb-1">
+          <span class="text- px-1.5 py-0.5 rounded-full font-bold ${m.category==='body'?'bg-orange-100 text-orange-600':m.category==='brain'?'bg-blue-100 text-blue-600':'bg-purple-100 text-purple-600'}">${m.category==='body'?'身体':m.category==='brain'?'脳':'精神'}</span>
+          <span class="text- text-slate-400">${m.timeMin}分</span>
+        </div>
+        <p class="action-title">${m.title}</p>
+        <p class="action-desc">${m.description||''}</p>
+      </div>
+      <span class="material-icons-outlined action-chevron">chevron_right</span>
     `;
-    card.addEventListener("click", () => expandInlineDetail(card, m));
+
+    const handler = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openCareModal(m);
+    };
+    card.addEventListener("click", handler);
+    card.addEventListener("touchend", handler, {passive:false});
     listEl.appendChild(card);
   });
+
   const more = document.createElement("a");
   more.href = "care.html";
-  more.className = "block text-center text-[11px] text-green-600 font-bold mt-3 underline";
+  more.className = "block text-center text- text-green-600 font-bold mt-3 underline relative z-20";
   more.textContent = "もっとケアを見る →";
   listEl.appendChild(more);
 }
+
+function openCareModal(m) {
+  const modal = document.getElementById('care-modal');
+  if (!modal) return;
+  const modalImg = document.getElementById('modal-image');
+  const modalTag = document.getElementById('modal-tag');
+  const modalTitle = document.getElementById('modal-title');
+  const modalDesc = document.getElementById('modal-description');
+  let extraArea = document.getElementById('modal-extra');
+  if (!extraArea) {
+    extraArea = document.createElement('div');
+    extraArea.id = 'modal-extra';
+    extraArea.className = 'space-y-3 mb-4 text-left';
+    if (modalDesc && modalDesc.parentNode) {
+      modalDesc.parentNode.insertBefore(extraArea, modalDesc.nextSibling);
+    }
+  }
+  if (modalImg) modalImg.src = m.imageUrl || (m.youtubeId? `https://img.youtube.com/vi/${m.youtubeId}/hqdefault.jpg` : '');
+  if (modalTag) {
+    modalTag.textContent = `# ${m.tags?.[0] || m.category} • ${m.timeMin}分`;
+    modalTag.className = `inline-block px-2.5 py-1 rounded-md text- font-bold text-white mb-2 shadow-sm ${m.category==='body'?'bg-orange-500':m.category==='brain'?'bg-blue-500':'bg-purple-500'}`;
+  }
+  if (modalTitle) modalTitle.textContent = m.title;
+  if (modalDesc) modalDesc.textContent = m.detail || m.description;
+  if (extraArea) {
+    extraArea.innerHTML = `
+      ${m.steps?.length? `<div><h4 class="text-xs font-bold text-slate-700 mb-1">手順</h4><ol class="list-decimal pl-4 space-y-1 text-xs text-slate-600">${m.steps.map(s=>`<li>${s}</li>`).join('')}</ol></div>` : ''}
+      ${m.youtubeId? `<div><h4 class="text-xs font-bold text-slate-700 mb-1">動画で見る</h4><div class="relative w-full aspect-video rounded-xl overflow-hidden bg-black"><iframe src="https://www.youtube-nocookie.com/embed/${m.youtubeId}?rel=0" class="absolute inset-0 w-full h-full" frameborder="0" allowfullscreen loading="lazy"></iframe></div></div>` : ''}
+      <div class="bg-slate-50 rounded-xl p-2.5 space-y-1 text- text-slate-400">
+        ${m.sourceName? `<p>出典: ${m.sourceName}</p>` : ''}
+        ${m.contraindication? `<p class="text-orange-600 bg-orange-50 p-1.5 rounded text-">⚠️ ${m.contraindication}</p>` : ''}
+      </div>
+    `;
+  }
+  modal.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+window.closeModal = function() {
+  const modal = document.getElementById('care-modal');
+  if (!modal) return;
+  modal.classList.remove('active');
+  document.body.style.overflow = '';
+  const ifr = modal.querySelector('iframe');
+  if (ifr) ifr.src = ifr.src;
+};
+window.rate = function(n){
+  document.querySelectorAll('.star-rating.material-icons-outlined').forEach((s,i)=>{
+    s.classList.toggle('active', i < n);
+  });
+  setTimeout(()=>window.closeModal(), 500);
+};
 
 function expandInlineDetail(anchorEl, m) {
   const existing = anchorEl.nextElementSibling;
