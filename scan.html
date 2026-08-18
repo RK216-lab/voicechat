@@ -62,7 +62,7 @@
         <button id="micBtn" type="button" disabled
           class="w-[78px] h-[78px] rounded-full bg-white border-[5px] border-red-400 flex items-center justify-center shadow-lg transition-all active:scale-95 opacity-50"
           aria-label="録音開始">
-          <span id="micInnerIcon" class="material-icons mic-icon">mic</span>
+          <span id="micInnerIcon" class="material-icons mic-icon">play_arrow</span>
         </button>
         <p id="micHint" class="text-xs text-slate-400">モデル読み込み中...</p>
         <button id="viewResultBtn" type="button"
@@ -72,7 +72,7 @@
       </div>
     </div>
     <!-- RESULT - コンパクトかつ見やすい、落ち着いたトーンの省スペースUI -->
-<div id="resultScreen" class="hidden flex-1 flex flex-col overflow-y-auto bg-[#FAF8F5] min-h-0 z-10 pb-20 hide-scrollbar">
+<div id="resultScreen" class="hidden flex-1 flex flex-col overflow-y-auto min-h-0 z-10 pb-20 hide-scrollbar">
   <div class="p-4 space-y-4 max-w-md mx-auto w-full entering">
     
     <!-- ヘッダー（余白を詰め、ボタンを小さく） -->
@@ -85,17 +85,27 @@
     </div>
 
     <!-- ① メインスコア（半円ゲージを拡大し、視認性を向上） -->
+   <!-- ① メインスコア（半円ゲージ復活・動的アニメーション対応版） -->
     <div class="bg-white rounded-2xl p-4 text-center shadow-sm border border-slate-200/80">
-      <span class="text-[11px] font-bold tracking-wider text-slate-400 uppercase inline-block mb-1.5">Today's Condition</span>
+      <span class="text-[11px] font-bold tracking-wider text-slate-400 uppercase inline-block mb-1.5">今のあなたの元気度分析</span>
       
-      <!-- 半円ゲージ（サイズアップ w-40 h-20 -> w-48 h-24、stroke-width調整） -->
+      <!-- 半円ゲージ -->
       <div class="relative w-48 h-24 mx-auto flex items-end justify-center my-1.5">
         <svg class="w-48 h-24 overflow-visible" viewBox="0 0 100 50">
-          <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#f1f5f9" stroke-width="10" stroke-linecap="round"/>
-          <path id="gaugePath" d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#10b981" stroke-width="10" stroke-linecap="round" stroke-dasharray="125.6" stroke-dashoffset="40"/>
+          <defs>
+            <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#34d399" />
+              <stop offset="100%" stop-color="#10b981" />
+            </linearGradient>
+            <filter id="gaugeGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#10b981" flood-opacity="0.3"/>
+            </filter>
+          </defs>
+          <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#e2e8f0" stroke-width="9" stroke-linecap="round"/>
+          <path id="gaugePath" d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="url(#gaugeGradient)" stroke-width="9" stroke-linecap="round" stroke-dasharray="125.66" stroke-dashoffset="125.66" filter="url(#gaugeGlow)" style="transition: stroke-dashoffset 1.2s cubic-bezier(0.34, 1.56, 0.64, 1);"/>
         </svg>
         <div class="absolute bottom-1 text-center leading-none">
-          <span id="scoreTotalVal" class="text-4xl font-extrabold text-slate-800 tracking-tight">68</span>
+          <span id="scoreTotalVal" class="text-4xl font-extrabold text-slate-800 tracking-tight">0</span>
           <span class="text-[13px] font-bold text-slate-400">/100</span>
         </div>
       </div>
@@ -105,55 +115,54 @@
       </p>
     </div>
 
-    <!-- ② コンディション解析（横並び円グラフを拡大、文字サイズ調整） -->
-    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3.5">
-      <div class="flex items-center justify-between">
-        <h3 class="text-[13px] font-bold text-slate-600">コンディション解析</h3>
-        <span class="text-[11px] text-slate-400">高数値＝疲労感強</span>
+    <!-- ② コンディション解析（home.htmlと完全統一） -->
+<div class="mb-5">
+  <div class="flex items-center justify-between mb-3 px-1">
+    <h3 class="text-xs font-bold text-slate-600">今のあなたの元気度</h3>
+    <span class="text-[10px] text-slate-400">%が高いほど元気だと推測されます</span>
+  </div>
+
+  <div class="grid grid-cols-3 gap-3 mb-5">
+    <!-- 脳 -->
+    <div class="wavy-card py-4 flex flex-col items-center justify-center shadow-sm">
+      <div id="circle-brain" class="progress-circle mx-auto mb-2" style="--p-value: 79; --p-color: #a2d2ff;">
+        <div>
+          <span id="score-brain" class="text-xl font-black text-gray-700">79</span>
+          <span class="text-xs text-gray-500">%</span>
+        </div>
       </div>
-      
-      <div class="grid grid-cols-3 gap-3 text-center">
-        <!-- 脳の疲れ -->
-        <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center border border-slate-100">
-          <div class="flex items-center gap-1.5 mb-2.5">
-            <span class="material-icons-outlined text-base text-rose-500">psychology</span>
-            <span class="text-[12px] font-bold text-slate-600">脳</span>
-          </div>
-          <!-- 円グラフを拡大 48px -> 60px -->
-          <div class="relative w-[60px] h-[60px] flex items-center justify-center">
-            <div id="circleBrain" class="mini-score-circle" style="--p:79; --c:#f43f5e;">
-              <span id="scoreBrainVal" class="text-[13px] font-extrabold text-slate-700">79%</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 精神の疲れ -->
-        <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center border border-slate-100">
-          <div class="flex items-center gap-1.5 mb-2.5">
-            <span class="material-icons-outlined text-base text-amber-500">spa</span>
-            <span class="text-[12px] font-bold text-slate-600">精神</span>
-          </div>
-          <div class="relative w-[60px] h-[60px] flex items-center justify-center">
-            <div id="circleMental" class="mini-score-circle" style="--p:85; --c:#f59e0b;">
-              <span id="scoreMentalVal" class="text-[13px] font-extrabold text-slate-700">85%</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 身体の疲れ -->
-        <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center border border-slate-100">
-          <div class="flex items-center gap-1.5 mb-2.5">
-            <span class="material-icons-outlined text-base text-emerald-500">directions_run</span>
-            <span class="text-[12px] font-bold text-slate-600">身体</span>
-          </div>
-          <div class="relative w-[60px] h-[60px] flex items-center justify-center">
-            <div id="circlePhysical" class="mini-score-circle" style="--p:49; --c:#10b981;">
-              <span id="scorePhysicalVal" class="text-[13px] font-extrabold text-slate-700">49%</span>
-            </div>
-          </div>
-        </div>
+      <div class="flex items-center justify-center text-xs font-bold text-gray-600 mt-1">
+        <span class="material-icons-outlined text-[14px] text-blue-500 mr-1">psychology</span>脳
       </div>
     </div>
+
+    <!-- 精神 -->
+    <div class="wavy-card py-4 flex flex-col items-center justify-center shadow-sm">
+      <div id="circle-mental" class="progress-circle mx-auto mb-2" style="--p-value: 85; --p-color: #a8e6cf;">
+        <div>
+          <span id="score-mental" class="text-xl font-black text-gray-700">85</span>
+          <span class="text-xs text-gray-500">%</span>
+        </div>
+      </div>
+      <div class="flex items-center justify-center text-xs font-bold text-gray-600 mt-1">
+        <span class="material-icons-outlined text-[14px] text-green-500 mr-1">spa</span>精神
+      </div>
+    </div>
+
+    <!-- 身体 -->
+    <div class="wavy-card py-4 flex flex-col items-center justify-center shadow-sm">
+      <div id="circle-body" class="progress-circle mx-auto mb-2" style="--p-value: 49; --p-color: #ffd3b6;">
+        <div>
+          <span id="score-body" class="text-xl font-black text-gray-700">49</span>
+          <span class="text-xs text-gray-500">%</span>
+        </div>
+      </div>
+      <div class="flex items-center justify-center text-xs font-bold text-gray-600 mt-1">
+        <span class="material-icons-outlined text-[14px] text-orange-400 mr-1">directions_run</span>身体
+      </div>
+    </div>
+  </div>
+</div>
 
     <!-- ③ AIアドバイス（文字サイズ調整） -->
     <div class="bg-amber-50/60 rounded-2xl p-4 shadow-sm border border-amber-200/60 space-y-1">
@@ -184,10 +193,10 @@
   </div>
 </div>
     <nav class="global-nav">
-            <a href="home.html" class="flex flex-col items-center transition text-gray-400 hover:text-green-500"><span class="material-icons-outlined text-3xl">home</span><span class="text-xs mt-1">ホーム</span></a>
-            <a href="scan.html" class="flex flex-col items-center -mt-10 group"><div class="scan-button-gradient w-16 h-16 rounded-full flex items-center justify-center text-white border-4 border-white relative shadow-lg"><span class="material-icons-outlined text-3xl transform scale-110 group-hover:scale-125 transition duration-300">waves</span></div><span class="text-xs mt-1 font-bold text-gray-400 group-hover:text-green-500 transition">スキャン</span></a>
-            <a href="care.html" class="flex flex-col items-center transition text-green-500 font-bold"><span class="material-icons-outlined text-3xl">favorite_border</span><span class="text-xs mt-1">ケア</span></a>           
-        </nav>
+  <a href="home.html" class="flex flex-col items-center transition text-slate-400 hover:text-emerald-500"><span class="material-icons-outlined text-3xl">home</span><span class="text-xs mt-1">ホーム</span></a>
+  <a href="scan.html" class="flex flex-col items-center -mt-10 group"><div class="scan-button-gradient w-16 h-16 rounded-full flex items-center justify-center text-white border-4 border-white relative shadow-lg ring-4 ring-emerald-400/20"><span class="material-icons-outlined text-3xl transform scale-110 transition duration-300">waves</span></div><span class="text-xs mt-1 font-bold text-emerald-500 transition">スキャン</span></a>
+  <a href="care.html" class="flex flex-col items-center transition text-slate-400 hover:text-emerald-500"><span class="material-icons-outlined text-3xl">favorite_border</span><span class="text-xs mt-1">ケア</span></a>           
+</nav>
   </div>
 
   <!-- CARE MODAL - care.htmlと同じ完全版 -->

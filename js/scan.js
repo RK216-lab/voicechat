@@ -689,37 +689,35 @@ function titleFromScores(scores) {
   return "総合的な疲れ";
 }
 
-
-// scan.js の applyScoreUI をこのAfter版に置き換えてください
 function applyScoreUI(scores) {
-  const totalEl = document.getElementById("scoreTotalVal");
-  if (totalEl) totalEl.textContent = scores.total;
-
-  // ヒーロー円形グラデーションを更新
-  const ring = document.getElementById("heroScoreRing");
-  if (ring) {
-    ring.style.setProperty('--p', scores.total);
-    const color = scores.total >= 70 ? '#10b981' : scores.total >= 50 ? '#f59e0b' : '#f43f5e';
-    ring.style.setProperty('--c', color);
-  }
+  // ★ 計算された総合スコアを保持
+  window.currentScanScore = scores.total;
 
   const hintEl = document.getElementById("scoreHint");
   if (hintEl) {
-    const msg = scores.total >= 80 ? '絶好調！この調子をキープ' : scores.total >= 60 ? 'まずまずの調子です' : scores.total >= 40 ? '少しお疲れ気味です' : '今日はゆっくり休みましょう';
+    const msg = scores.total >= 80 ? '絶好調！この調子をキープ' : 
+                scores.total >= 60 ? 'まずまずの調子です' : 
+                scores.total >= 40 ? '少しお疲れ気味です' : '今日はゆっくり休みましょう';
     hintEl.textContent = msg;
   }
 
-  const b = document.getElementById("scoreBrainVal"), m = document.getElementById("scoreMentalVal"), p = document.getElementById("scorePhysicalVal");
-  if (b) b.innerHTML = `${scores.brain}<span class="text-[11px] font-bold ml-0.5">%</span>`;
-  if (m) m.innerHTML = `${scores.mental}<span class="text-[11px] font-bold ml-0.5">%</span>`;
-  if (p) p.innerHTML = `${scores.physical}<span class="text-[11px] font-bold ml-0.5">%</span>`;
+  // --- 新デザイン用のスコア数値の反映 ---
+  const bText = document.getElementById("score-brain");
+  const mText = document.getElementById("score-mental");
+  const pText = document.getElementById("score-body");
 
-  requestAnimationFrame(() => {
-    const bb = document.getElementById("barBrain"), mb = document.getElementById("barMental"), pb = document.getElementById("barPhysical");
-    if (bb) bb.style.width = scores.brain + "%";
-    if (mb) mb.style.width = scores.mental + "%";
-    if (pb) pb.style.width = scores.physical + "%";
-  });
+  if (bText) bText.textContent = scores.brain;
+  if (mText) mText.textContent = scores.mental;
+  if (pText) pText.textContent = scores.physical;
+
+  // --- 新デザイン用の円形プログレス描画(--p-value)の反映 ---
+  const circleBrain = document.getElementById("circle-brain");
+  const circleMental = document.getElementById("circle-mental");
+  const circleBody = document.getElementById("circle-body");
+
+  if (circleBrain) circleBrain.style.setProperty("--p-value", scores.brain);
+  if (circleMental) circleMental.style.setProperty("--p-value", scores.mental);
+  if (circleBody) circleBody.style.setProperty("--p-value", scores.physical);
 }
 
 
@@ -817,7 +815,10 @@ async function loadModel() {
     console.log("[Load] Local TTS skipped");
     isLocalTTSReady=false;
 
-    updateProgress(100, "100%");
+    // (変更前) updateProgress(100, "100%");
+    // (変更後) ロード完了時は診断プログレスとしては0%（または初期状態）にする
+    updateProgress(0, "0%"); 
+    
     stopLoadCopyRotation();
     currentOpening = OPENINGS[Math.floor(Math.random() * OPENINGS.length)];
     if (DOM.aiPromptText) DOM.aiPromptText.innerHTML = currentOpening.replace(/。/g, "。<br>");
@@ -988,9 +989,10 @@ function setMicUI(rec) {
     if (DOM.micHint) DOM.micHint.textContent = "タップして停止";
     DOM.micBtn.classList.add("mic-pulse");
   } else {
-    DOM.micInnerIcon.textContent = "mic";
+    // ★ 会話開始前は再生アイコン、開始後はマイクアイコンにする
+    DOM.micInnerIcon.textContent = isConversationStarted ? "mic" : "play_arrow";
     DOM.micInnerIcon.className = "material-icons mic-icon";
-    if (DOM.micHint) DOM.micHint.textContent = "タップして話す";
+    if (DOM.micHint) DOM.micHint.textContent = isConversationStarted ? "タップして話す" : "ここを押して会話をはじめる";
     DOM.micBtn.classList.remove("mic-pulse");
   }
 }
@@ -1179,6 +1181,8 @@ async function processTurn() {
     }
 
     if (currentTurn === 2) {
+      DOM.micBtn?.classList.add("hidden");
+      DOM.micHint?.classList.add("hidden");
       if (DOM.statusText) DOM.statusText.textContent = "AI が考えています...";
       updateProgress(65, "65%");
       const closeMessages = [{ role: "system", content: buildTurnSystem("close", currentOpening) }, ...conversationLog];
@@ -1378,8 +1382,31 @@ function initScan() {
     DOM.scanScreen?.classList.add("hidden");
     DOM.resultScreen?.classList.remove("hidden");
     DOM.resultScreen?.classList.add("entering");
+
+    // ★ ここを追加（画面切り替え時にアニメーション実行）
+    if (typeof window.currentScanScore === 'number') {
+      updateScoreGauge(window.currentScanScore);
+    }
   });
   loadModel();
 }
 
 document.addEventListener("DOMContentLoaded", initScan);
+// 半円メーター＆数字のカウントアップ起動関数
+function updateScoreGauge(score) {
+  const gauge = document.getElementById('gaugePath');
+  const scoreVal = document.getElementById('scoreTotalVal');
+  if (!gauge || !scoreVal) return;
+
+  const maxLen = 125.66;
+  const clampedScore = Math.min(Math.max(score, 0), 100);
+  const targetOffset = maxLen * (1 - clampedScore / 100);
+
+  // CSSのアニメーション（transition）を一時的に無効化して即時描画
+  gauge.style.transition = 'none';
+  gauge.style.strokeDashoffset = targetOffset;
+  scoreVal.textContent = Math.round(clampedScore);
+}
+
+// 結果表示タイミングで実行する例
+// updateScoreGauge(68);
