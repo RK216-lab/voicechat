@@ -176,11 +176,19 @@ const RestDB = (() => {
       localStorage.setItem(key, JSON.stringify(history.slice(0,20)));
     } catch(e){ console.warn(e); }
 
-    if (getUid() !== 'guest') {
-      try {
-        await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveResult', ...payload }) });
-      } catch(e){ console.warn('cloud save failed', e); }
-    }
+    // ★ 修正後の 175行目周辺
+if (getUid() !== 'guest') {
+  try {
+    await fetch(GAS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain', // この一行を追加
+      },
+      body: JSON.stringify({ action: 'saveResult', ...payload })
+    });
+  } catch(e){ console.warn('cloud save failed', e); }
+}
+  // ★ 修正後の 175 
   }
 
   return { load, pickForResult, saveResult, parseYouTubeId, _setUseLocal: v=>useLocal=v, _normalize: normalizeType, _getUid: getUid };
