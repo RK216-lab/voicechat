@@ -1,6 +1,6 @@
 // js/restDB.js v3.2 - ログイン任意対応 + キャッシュユーザー別
 const RestDB = (() => {
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbxkNZwkMCaMlRA7LRw5k9aGr8YJGdYfy_TgiOinWm6is3C8UgoueybU8IFGtENgOaiRTA/exec";
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbxMHumbUpPBhcvp4Va__-Jacw3P2zIpXgTBxF-LkfD9MkJJXZadItdCI304aNFFxeFU/exec";
   const LOCAL_JSON_URL = "./data/restDatabase.json";
   let useLocal = false;
 
